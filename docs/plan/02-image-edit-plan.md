@@ -1,6 +1,6 @@
 # 02 - Image Edit (Plan)
 
-- Status: draft (menunggu persetujuan, belum digrill)
+- Status: disetujui user (2026-10-16); stack mengikuti plan 01
 - Tanggal: 2026-10-16
 
 ## Tujuan

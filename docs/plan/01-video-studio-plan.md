@@ -1,6 +1,6 @@
 # 01 - Video Studio (Plan)
 
-- Status: draft (menunggu persetujuan, belum digrill)
+- Status: disetujui user (2026-10-16); stack: FastAPI + React
 - Tanggal: 2026-10-16
 
 ## Tujuan
@@ -61,8 +61,11 @@ Editor timeline penuh, akun multi-user, pembayaran, fitur episode (UI dan alurny
 - Dari klip itu, extend dengan prompt menghasilkan klip lanjutan yang tersambung dan bisa digabung.
 - Parameter yang tidak didukung model ditolak di UI sebelum kirim, bukan error 400 mentah.
 
+## Keputusan
+- Stack: backend Python + FastAPI + SQLite; frontend React + Vite + TypeScript. Disetujui user.
+- Storage media: abstraksi `Storage` dengan backend lokal (default dev) dan S3-compatible (R2) untuk URL publik. Keputusan deploy/biaya menyusul.
+
 ## Pertanyaan terbuka
-- Stack: usul Python (FastAPI) + frontend web ringan; atau Node/TypeScript full-stack? Perlu keputusan.
 - Dijalankan lokal saja, atau di-deploy?
 - Model mana yang jadi default dan batas biaya per job?
 - Seberapa panjang hasil akhir yang diharapkan (extend berapa kali)?
@@ -80,4 +83,5 @@ Editor timeline penuh, akun multi-user, pembayaran, fitur episode (UI dan alurny
 
 ## Riwayat
 - 2026-10-16: draft awal.
+- 2026-10-16: stack diputuskan (FastAPI + React); status disetujui.
 - 2026-10-16: tambah riset model, hosting media publik, adapter model, tautan ke plan 02.
