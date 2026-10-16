@@ -1,6 +1,7 @@
 # 01 - Video Studio (Plan)
 
 - Status: disetujui user (2026-10-16); stack: FastAPI + React
+- Implementasi iterasi 1 selesai (lihat docs/implementation/01-*)
 - Tanggal: 2026-10-16
 
 ## Tujuan

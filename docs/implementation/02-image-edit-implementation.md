@@ -1,0 +1,37 @@
+# 02 - Image Edit (Implementation)
+
+Plan: `docs/plan/02-image-edit-plan.md`
+Grill: `docs/grill/02-image-edit-grill.md`
+
+## Yang dibangun
+- `POST /api/images/{id}/edit` (prompt, model, hingga 4 gambar referensi) → versi baru `kind=edit` dengan `parent_image_id`.
+- Adapter tunggal `OpenRouterClient.edit_image` lewat Chat Completions dengan `modalities: ["image","text"]`.
+- Halaman "Edit Foto": pilih/unggah gambar, prompt, model (daftar dari `/models?output_modalities=image`, bisa diketik), referensi tambahan, tampilan sebelum/sesudah, "Edit lagi dari ini", "Jadikan video".
+
+## File yang diubah
+`backend/app/{openrouter,service,main}.py`, `frontend/src/pages/EditPage.tsx`, `frontend/src/components.tsx`.
+
+## Penyimpangan dari plan
+- Tabel `images` dipakai bersama gambar upload dan frame hasil extend (kolom `kind`).
+- Model default di UI `openai/gpt-image-2` (bisa diganti); tidak ada daftar rekomendasi bawaan di UI.
+
+## Temuan grill yang sudah ditangani
+| Temuan | Penanganan | Bukti |
+|---|---|---|
+| Balasan teks tanpa gambar | Error 422 dengan teks balasan; tidak membuat versi baru | `test_edit_text_only_reply_is_error_not_new_version` |
+| Hasil data URL berbahaya/besar | Batas ukuran + validasi Pillow sebelum simpan | kode `from_data_url`, `normalize_image` |
+| Gambar asli hilang | Setiap edit versi baru; asli tetap | `test_edit_image` |
+| Beberapa gambar di respons | Semua disimpan sebagai varian | kode (belum ada tes khusus) |
+| Hasil edit jadi input video | Tanpa upload ulang | `test_edit_image` (membuat klip dari hasil edit) |
+| Model hanya-teks di daftar | Disaring | `test_image_models_filters_text_only` |
+
+Belum: peringatan edit berantai hanya berupa teks statis (tidak menghitung jumlah edit); validasi/crop rasio saat "jadikan video" belum ada; biaya model mahal tidak butuh konfirmasi eksplisit selain batas harian.
+
+## Pengujian
+Termasuk dalam 21 tes backend dan uji UI end-to-end di `01-video-studio-implementation.md`. Edit nyata ke OpenRouter belum diuji (`scripts/smoke_openrouter.py --edit openai/gpt-image-2`).
+
+## Masalah tersisa
+Bentuk respons `message.images[].image_url.url` mengikuti dokumentasi OpenRouter tetapi belum diverifikasi dengan key nyata.
+
+## Riwayat
+- 2026-10-16: iterasi 1.

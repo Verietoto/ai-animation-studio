@@ -1,0 +1,101 @@
+import base64
+import io
+import json
+import subprocess
+from pathlib import Path
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from app.config import Settings
+from app.main import create_app
+from app.openrouter import OpenRouterClient
+
+VIDEO_MODEL = {"id": "bytedance/seedance-2.5", "supported_durations": [4, 8],
+               "supported_resolutions": ["720p"], "supported_aspect_ratios": ["16:9"],
+               "supported_frame_images": ["first_frame", "last_frame"]}
+
+
+def png_bytes(color=(200, 50, 50), size=(64, 48)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, color).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def make_video(path: Path, color="red", seconds=1, audio=True) -> Path:
+    cmd = ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"color=c={color}:s=160x90:d={seconds}:r=24"]
+    if audio:
+        cmd += ["-f", "lavfi", "-i", f"sine=frequency=440:d={seconds}"]
+    cmd += ["-pix_fmt", "yuv420p", str(path)]
+    subprocess.run(cmd, check=True)
+    return path
+
+
+class FakeOpenRouter:
+    """Meniru API OpenRouter berdasarkan dokumentasi; menyimpan permintaan untuk diperiksa."""
+
+    def __init__(self, tmp: Path):
+        self.requests: list[httpx.Request] = []
+        self.video_status = "completed"
+        self.video_bytes = make_video(tmp / "remote.mp4", color="blue").read_bytes()
+        self.edit_returns_image = True
+        self.submit_count = 0
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        path = request.url.path
+        if path.endswith("/videos/models"):
+            return httpx.Response(200, json={"data": [VIDEO_MODEL]})
+        if path.endswith("/videos") and request.method == "POST":
+            self.submit_count += 1
+            return httpx.Response(200, json={"id": f"job{self.submit_count}", "status": "pending"})
+        if path.endswith("/content"):
+            return httpx.Response(200, content=self.video_bytes)
+        if "/videos/" in path:
+            return httpx.Response(200, json={"id": path.split("/")[-1], "status": self.video_status,
+                                             "usage": {"cost": 0.4}})
+        if path.endswith("/chat/completions"):
+            if not self.edit_returns_image:
+                return httpx.Response(200, json={"choices": [{"message": {"content": "Maaf, tidak bisa."}}]})
+            url = "data:image/png;base64," + base64.b64encode(png_bytes((10, 200, 10))).decode()
+            return httpx.Response(200, json={"choices": [{"message": {"content": "ok", "images": [
+                {"type": "image_url", "image_url": {"url": url}}]}}], "usage": {"cost": 0.01}})
+        if path.endswith("/models"):
+            return httpx.Response(200, json={"data": [{"id": "openai/gpt-image-2",
+                                                      "architecture": {"input_modalities": ["text", "image"]}},
+                                                     {"id": "x/text-only",
+                                                      "architecture": {"input_modalities": ["text"]}}]})
+        return httpx.Response(404, json={"error": "unknown"})
+
+    def last_json(self, suffix: str) -> dict:
+        req = [r for r in self.requests if r.url.path.endswith(suffix) and r.method == "POST"][-1]
+        return json.loads(req.content)
+
+
+@pytest.fixture
+def fake(tmp_path):
+    return FakeOpenRouter(tmp_path)
+
+
+@pytest.fixture
+def settings(tmp_path):
+    return Settings(api_key="sk-test-1234567890", base_url="https://or.test/api/v1",
+                    data_dir=tmp_path / "data", daily_budget_usd=5.0, poll_interval=999,
+                    job_timeout=1800, max_upload_bytes=1024 * 1024, max_chain=2)
+
+
+@pytest.fixture
+def api(settings, fake):
+    client = OpenRouterClient(settings.api_key, settings.base_url, transport=httpx.MockTransport(fake))
+    app = create_app(settings, client)
+    with TestClient(app) as tc:
+        tc.studio = app.state.studio
+        yield tc
+
+
+def upload(api) -> dict:
+    r = api.post("/api/images", files={"file": ("a.png", png_bytes(), "image/png")})
+    assert r.status_code == 200, r.text
+    return r.json()
