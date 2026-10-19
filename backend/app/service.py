@@ -9,6 +9,7 @@ from . import media, pricing
 from .config import Settings
 from .db import Database, now
 from .openrouter import OpenRouterClient, OpenRouterError
+from .publicmedia import NoPublicMedia
 from .storage import Storage
 
 ACTIVE = ("submitted", "in_progress")
@@ -24,8 +25,12 @@ class ServiceError(Exception):
 
 
 class Studio:
-    def __init__(self, settings: Settings, db: Database, storage: Storage, client: OpenRouterClient):
+    def __init__(self, settings: Settings, db: Database, storage: Storage, client: OpenRouterClient,
+                 public=None):
         self.s, self.db, self.storage, self.client = settings, db, storage, client
+        self.public = public or NoPublicMedia()
+        from .motion import Motion
+        self.motion = Motion(self)
         self._models: tuple[float, list[dict]] | None = None
         self._img_models: tuple[float, list[dict]] | None = None
         self._lock = threading.RLock()   # cek anggaran + pencatatan job harus atomik
@@ -306,9 +311,17 @@ class Studio:
         for clip in self.db.all("SELECT * FROM clips WHERE status IN ('submitted','in_progress')"):
             try:
                 self._poll_clip(clip)
+                if self.get_clip(clip["id"])["status"] not in ACTIVE:
+                    self._release_published(clip["id"])
             except OpenRouterError as exc:
                 # error jaringan sementara: biarkan, coba lagi di siklus berikut
                 self.db.update("clips", clip["id"], {"error": str(exc), "updated_at": now()})
+
+    def _release_published(self, clip_id: str) -> None:
+        row = self.db.one("SELECT params FROM clips WHERE id = ?", (clip_id,))
+        key = json.loads(row["params"]).get("published_key") if row else None
+        if key:
+            self.public.delete(key)
 
     def _poll_clip(self, clip: dict) -> None:
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(clip["created_at"])).total_seconds()

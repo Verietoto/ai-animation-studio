@@ -17,6 +17,15 @@ CREATE TABLE IF NOT EXISTS images (
     estimated_cost REAL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS refs (
+    id TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    source_clip_id TEXT,           -- bila berasal dari klip library: URL publik dari OpenRouter
+    duration REAL NOT NULL,
+    width INTEGER NOT NULL, height INTEGER NOT NULL,
+    has_audio INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS characters (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -46,6 +55,8 @@ CREATE TABLE IF NOT EXISTS clips (
     error TEXT,
     chain_depth INTEGER NOT NULL DEFAULT 0,
     idempotency_key TEXT UNIQUE,
+    kind TEXT NOT NULL DEFAULT 'i2v',
+    reference_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -78,6 +89,13 @@ class Database:
             self._conn.execute("PRAGMA user_version = 2")
         if version < 3:   # v3: tabel characters/character_images dibuat oleh SCHEMA (IF NOT EXISTS)
             self._conn.execute("PRAGMA user_version = 3")
+        if version < 4:   # v4: klip motion (kind, reference_id); tabel refs dibuat oleh SCHEMA
+            cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(clips)")}
+            if "kind" not in cols:
+                self._conn.execute("ALTER TABLE clips ADD COLUMN kind TEXT NOT NULL DEFAULT 'i2v'")
+            if "reference_id" not in cols:
+                self._conn.execute("ALTER TABLE clips ADD COLUMN reference_id TEXT")
+            self._conn.execute("PRAGMA user_version = 4")
         self._conn.commit()
 
     def execute(self, sql: str, args: tuple = ()) -> None:

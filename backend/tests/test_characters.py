@@ -65,7 +65,7 @@ def test_edit_with_unknown_character_404(api):
     assert r.status_code == 404
 
 
-def test_database_reaches_version_3(tmp_path):
+def test_database_reaches_latest_version(tmp_path):
     from app.db import Database
     db = Database(tmp_path / "x.db")
-    assert db.one("PRAGMA user_version")["user_version"] == 3
+    assert db.one("PRAGMA user_version")["user_version"] == 4

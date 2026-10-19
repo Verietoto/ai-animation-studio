@@ -128,3 +128,29 @@ def merge_videos(inputs: list[Path], out: Path) -> None:
         listing.write_text("".join(f"file '{p}'\n" for p in parts))
         _run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
               "-c", "copy", str(out)])
+
+
+MIN_REFERENCE_PIXELS = 407_696      # batas Seedance r2v (terukur pada uji nyata: 736x400 ditolak, 854x480 lolos)
+MAX_REFERENCE_PIXELS = 1280 * 720
+
+
+def prepare_reference_video(src: Path, out: Path, max_seconds: float) -> dict:
+    """Normalisasi video referensi: potong ke max_seconds, h264 + aac, jumlah piksel di dalam
+    [MIN_REFERENCE_PIXELS, MAX_REFERENCE_PIXELS] (naikkan skala bila terlalu kecil), dimensi genap."""
+    info = probe(src)
+    w, h = info["width"], info["height"]
+    scale = 1.0
+    if w * h < MIN_REFERENCE_PIXELS:
+        scale = (MIN_REFERENCE_PIXELS * 1.02 / (w * h)) ** 0.5
+    elif w * h > MAX_REFERENCE_PIXELS:
+        scale = (MAX_REFERENCE_PIXELS / (w * h)) ** 0.5
+    nw, nh = int(round(w * scale / 2) * 2), int(round(h * scale / 2) * 2)
+    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(src), "-t", f"{max_seconds:.2f}", "-vf",
+           f"scale={nw}:{nh},setsar=1,fps=24,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
+    cmd += ["-c:a", "aac", "-ar", "48000", "-ac", "2"] if info["has_audio"] else ["-an"]
+    _run(cmd + [str(out)])
+    return probe(out)
+
+
+def first_frame(video: Path, out_png: Path) -> None:
+    _run(["ffmpeg", "-y", "-v", "error", "-i", str(video), "-frames:v", "1", str(out_png)])

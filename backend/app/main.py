@@ -11,6 +11,7 @@ from . import media
 from .config import Settings
 from .db import Database
 from .openrouter import OpenRouterClient
+from .publicmedia import NoPublicMedia, S3PublicMedia
 from .service import ServiceError, Studio
 from .storage import Storage
 
@@ -42,7 +43,7 @@ class ExtendIn(Confirm):
 
 
 class EstimateIn(BaseModel):
-    kind: str = Field(pattern="^(video|image_edit|character_sheet)$")
+    kind: str = Field(pattern="^(video|image_edit|character_sheet|motion|motion_anchor)$")
     model: str
     duration: int | None = None
     resolution: str | None = None
@@ -50,6 +51,31 @@ class EstimateIn(BaseModel):
     generate_audio: bool = False
     reference_count: int = Field(default=0, ge=0, le=20)   # gambar referensi tambahan (edit foto)
     quality: str | None = None
+    mode: str | None = None              # motion: flux_edit | anchor_edit | reference
+    reference_id: str | None = None
+
+
+class MotionIn(Confirm):
+    mode: str
+    model: str
+    reference_id: str
+    prompt: str = Field(max_length=4000)
+    character_id: str | None = None
+    image_ids: list[str] = []
+    anchor_image_id: str | None = None
+    duration: int | None = None
+    resolution: str | None = Field(default=None, max_length=20)
+    aspect_ratio: str | None = Field(default=None, max_length=20)
+    generate_audio: bool = False
+    idempotency_key: str | None = Field(default=None, max_length=100)
+
+
+class AnchorIn(Confirm):
+    reference_id: str
+    character_id: str
+    model: str
+    quality: str | None = Field(default=None, max_length=20)
+    aspect_ratio: str | None = Field(default=None, max_length=20)
 
 
 class CharacterIn(BaseModel):
@@ -79,15 +105,22 @@ class EditIn(Confirm):
     character_id: str | None = None
 
 
-def create_app(settings: Settings | None = None, client: OpenRouterClient | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, client: OpenRouterClient | None = None,
+               public=None) -> FastAPI:
     settings = settings or Settings.from_env()
     db = Database(settings.data_dir / "studio.db")
     storage = Storage(settings.data_dir / "media")
     client = client or OpenRouterClient(settings.api_key, settings.base_url)
-    studio = Studio(settings, db, storage, client)
+    if public is None:
+        public = (S3PublicMedia(settings.s3_endpoint_url, settings.s3_bucket, settings.s3_access_key_id,
+                                settings.s3_secret_access_key, settings.s3_region, settings.public_url_ttl)
+                  if settings.s3_bucket and settings.s3_access_key_id and settings.s3_secret_access_key
+                  else NoPublicMedia())
+    studio = Studio(settings, db, storage, client, public)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        studio.public.cleanup(86400)   # sisa objek publik yang tak sempat dibersihkan
         studio.start()
         yield
         studio.stop()
@@ -118,7 +151,13 @@ def create_app(settings: Settings | None = None, client: OpenRouterClient | None
     @app.post("/api/estimate")
     def estimate(body: EstimateIn, s: Studio = Depends(get_studio)):
         """Perkiraan biaya tanpa efek samping; parameter divalidasi seperti saat generate."""
-        if body.kind == "character_sheet":
+        if body.kind == "motion_anchor":
+            est = s.estimate_image_job(body.model, n_inputs=3)
+        elif body.kind == "motion":
+            est = s.motion.estimate(body.mode or "", body.model, body.reference_id or "", duration=body.duration,
+                                    resolution=body.resolution, aspect_ratio=body.aspect_ratio,
+                                    generate_audio=body.generate_audio)
+        elif body.kind == "character_sheet":
             est = s.estimate_sheet(body.model, len(s.SHEET_VIEWS), body.aspect_ratio, body.quality)
         elif body.kind == "video":
             params = {k: v for k, v in {"duration": body.duration, "resolution": body.resolution,
@@ -196,6 +235,45 @@ def create_app(settings: Settings | None = None, client: OpenRouterClient | None
         s.generate_sheet(character_id, body.model, body.aspect_ratio, body.quality,
                          body.confirmed_cost, body.accept_unknown_cost)
         return public_character(s.get_character(character_id))
+
+    @app.post("/api/references")
+    async def upload_reference(file: UploadFile = File(...), s: Studio = Depends(get_studio)):
+        tmp = s.storage.new_path(".upload")
+        size = 0
+        try:
+            with open(tmp, "wb") as fh:   # streaming ke disk, bukan memuat seluruh video ke RAM
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > s.s.max_video_upload_bytes:
+                        raise ServiceError("file video terlalu besar", 413)
+                    fh.write(chunk)
+            return s.motion.add_upload(tmp)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    @app.post("/api/references/from-clip/{clip_id}")
+    def reference_from_clip(clip_id: str, s: Studio = Depends(get_studio)):
+        return s.motion.add_from_clip(clip_id)
+
+    @app.get("/api/references")
+    def list_references(s: Studio = Depends(get_studio)):
+        return [{k: v for k, v in r.items() if k != "path"} for r in
+                s.db.all("SELECT * FROM refs ORDER BY created_at DESC LIMIT 100")]
+
+    @app.get("/api/references/{ref_id}/file")
+    def reference_file(ref_id: str, s: Studio = Depends(get_studio)):
+        return FileResponse(s.storage.resolve(s.motion.get_ref(ref_id)["path"]), media_type="video/mp4")
+
+    @app.post("/api/motion/anchor")
+    def motion_anchor(body: AnchorIn, s: Studio = Depends(get_studio)):
+        return public_image(s.motion.make_anchor(body.reference_id, body.character_id, body.model,
+                                                 quality=body.quality, aspect_ratio=body.aspect_ratio,
+                                                 confirmed_cost=body.confirmed_cost,
+                                                 accept_unknown_cost=body.accept_unknown_cost))
+
+    @app.post("/api/motion")
+    def motion(body: MotionIn, s: Studio = Depends(get_studio)):
+        return public_clip(s.motion.create(**body.model_dump()))
 
     @app.post("/api/clips")
     def create_clip(body: ClipIn, s: Studio = Depends(get_studio)):
