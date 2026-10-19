@@ -26,6 +26,19 @@ Yang **belum terbukti** (inti risiko fitur ini):
 - Batas durasi/ukuran/format video referensi.
 - Kling Motion Control dan Wan Animate (khusus transfer gerakan) **tidak ditemukan** di katalog OpenRouter; hanya tersedia di luar OpenRouter.
 
+## Kunci karakter (permintaan user 2026-10-19)
+Masalah: model video cenderung "melayang" dari wajah/pakaian karakter, dan jalur B (FLUX Video Edit) hanya menerima prompt. Cara yang diusulkan, dari yang paling murah:
+
+1. **Entitas Karakter di aplikasi.** Nama, deskripsi teks baku (wajah, rambut, pakaian, warna; dipakai ulang di setiap prompt), dan 3 sampai 6 gambar referensi. Dipilih sekali, otomatis ikut di setiap generate. Ini juga fondasi untuk fitur episode nanti.
+2. **Character sheet otomatis dari satu foto.** Edit foto (plan 02, sekitar $0,015 sampai $0,05 per gambar) membuat tampak depan, samping, tiga perempat, dan seluruh badan dengan pakaian sama di latar netral. User memilih/menyetujui sheet sebelum dipakai.
+3. **Jalur A (Seedance): semua gambar sheet dikirim sebagai `input_references`** bersama video referensi, prompt menyebut "the character shown in images 1-4". Seedance 2.0 disebut OpenRouter "particularly strong at preserving character consistency". Tanpa `frame_images` (kalau dikirim, referensi diabaikan).
+4. **Jalur B: metode "anchor frame".** Ambil frame pertama video referensi (ffmpeg) lalu edit foto dengan referensi sheet: "replace the person in image 1 with the character in image 2, keep pose, framing, lighting". Hasilnya dipakai sebagai keyframe untuk **Runway Aleph 2** (passthrough `keyframes`; satu gambar tanpa posisi diperlakukan sebagai frame pertama), yang menyebarkan tampilan itu ke seluruh klip. Ini alur yang didokumentasikan untuk Aleph (edit satu still, kirim kembali sebagai anchor). Untuk FLUX Video Edit, spike menguji apakah gambar anchor diterima; bila tidak, FLUX hanya untuk edit berbasis prompt.
+5. **Gambar ke Video dan Extend (fitur 01)** sudah mengunci frame awal lewat `first_frame`; kunci bisa diperkuat dengan memakai pose dari sheet sebagai frame awal. Catatan: `frame_images` dan `input_references` tidak bisa digabung (frame menang), jadi sheet tidak bisa ikut di jalur ini.
+6. **Cek konsistensi otomatis (opsional, eksperimental).** Beberapa frame hasil dibandingkan dengan sheet oleh model vision murah lewat OpenRouter (skor 1 sampai 10 + alasan), hasil di bawah ambang diberi peringatan. Keandalan penilaian ini belum terbukti; hanya sebagai sinyal, bukan penentu.
+
+Yang harus dibuktikan di spike: (a) Seedance memakai sheet + video referensi sekaligus; (b) anchor frame + Aleph mempertahankan wajah di seluruh klip; (c) FLUX Video Edit menerima/mengabaikan gambar.
+Biaya tambahan spike: sheet 4 gambar ≈ $0,10; anchor frame ≈ $0,02; Aleph 5 detik ≈ $1,40.
+
 ## Ruang lingkup
 - Termasuk: halaman "Tiru Gerakan": unggah video referensi (dan opsional pakai audio dari video itu), pilih jalur (A: animasikan gambar / B: ganti subjek di video), pilih gambar objek (dari library, termasuk hasil edit foto; wajib untuk A, opsional untuk B bila model mendukung), prompt, model, durasi, resolusi; hasil masuk library klip.
 - Jalur yang tersedia di UI hanya yang lolos spike.
@@ -45,7 +58,8 @@ Yang **belum terbukti** (inti risiko fitur ini):
 - UI: halaman baru "Tiru Gerakan" dengan pratinjau video referensi dan gambar objek berdampingan.
 
 ## Langkah kerja
-0. **Perbaiki pengaman biaya untuk semua job** (temuan grill 3): estimasi biaya per job sebelum kirim dan `MAX_COST_PER_JOB_USD`.
+0. **Estimasi biaya sebelum setiap generate**: dipindah ke fitur tersendiri, `docs/plan/04-cost-estimate-plan.md`, dikerjakan lebih dulu.
+0b. **Entitas Karakter + character sheet** (bagian "Kunci karakter"), sebelum spike agar sheet bisa diuji.
 1. **Spike murah lewat skrip, tanpa membangun hosting** (temuan grill 1, 2, 5), satu video referensi yang sama untuk kedua jalur, kriteria lolos konkret di grill 03, anggaran maksimum spike ditetapkan di awal:
    - Jalur B dulu karena paling murah: FLUX Video Edit, 2 job (video referensi 4 sampai 5 detik ≈ $0,15 per job). Satu prompt saja, satu prompt + gambar objek (untuk mengetahui apakah gambar diterima/dipakai).
    - Jalur A: Seedance varian termurah yang menerima video, 480p, 4 detik, 2 job.
@@ -85,5 +99,6 @@ Total spike: sekitar $1,10 tanpa Aleph, sampai $2,50 bila Aleph dipakai. Biaya n
 
 ## Riwayat
 - 2026-10-19: draft awal.
+- 2026-10-19: tambah bagian "Kunci karakter" (entitas karakter, character sheet, anchor frame + Aleph keyframes, cek konsistensi) dan pindahkan estimasi biaya ke plan 04, atas permintaan user.
 - 2026-10-19: tambah jalur B (ganti subjek di video: FLUX Video Edit, cadangan Aleph 2) atas persetujuan user; spike dua jalur, anggaran usulan $3.
 - 2026-10-19: setelah grill: tambah langkah 0 (pengaman biaya), spike tanpa hosting dengan kriteria konkret, tunnel hanya ke server berkas terpisah, definisi ulang suara, migrasi DB, upload streaming. Rincian di grill 03.
