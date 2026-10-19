@@ -8,6 +8,8 @@ export default function EditPage({ images, selected, setSelected, addImage, refr
   addImage: (i: Img) => void; refresh: () => void; toVideo: (id: string) => void;
 }) {
   const models = useAsync(api.imageModels, []);
+  const chars = useAsync(api.characters, []);
+  const [characterId, setCharacterId] = useState("");
   const [model, setModel] = useState("openai/gpt-image-2");
   const [prompt, setPrompt] = useState("");
   const [refs, setRefs] = useState<string[]>([]);
@@ -30,10 +32,10 @@ export default function EditPage({ images, selected, setSelected, addImage, refr
     );
   };
 
-  const estBody = model ? { kind: "image_edit" as const, model, reference_count: refs.length, ...opts } : null;
+  const estBody = model ? { kind: "image_edit" as const, model, reference_count: refs.length + (characterId ? 3 : 0), ...opts } : null;
   const live = useEstimate(estBody);
   const runner = useConfirmedRun(() => estBody, async (c) => {
-    const out = await api.editImage(selected!, { prompt, model, reference_image_ids: refs, ...opts, ...c });
+    const out = await api.editImage(selected!, { prompt, model, reference_image_ids: refs, ...opts, ...c, ...(characterId ? { character_id: characterId } : {}) });
     setResults(out); refresh();
   });
 
@@ -59,6 +61,12 @@ export default function EditPage({ images, selected, setSelected, addImage, refr
         {optionSelect("Resolusi", "resolution")}
         {optionSelect("Rasio", "aspect_ratio")}
         {optionSelect("Kualitas", "quality")}
+        <label>Kunci karakter
+          <select value={characterId} onChange={(e) => setCharacterId(e.target.value)}>
+            <option value="">(tanpa karakter)</option>
+            {(chars.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
         <label>Referensi tambahan (opsional, maks 4)
           <select multiple value={refs} onChange={(e) =>
             setRefs(Array.from(e.target.selectedOptions).map((o) => o.value).slice(0, 4))}>

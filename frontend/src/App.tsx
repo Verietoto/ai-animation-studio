@@ -4,8 +4,9 @@ import { useAsync } from "./components";
 import Generate from "./pages/Generate";
 import EditPage from "./pages/EditPage";
 import Library from "./pages/Library";
+import Characters from "./pages/Characters";
 
-type Tab = "generate" | "edit" | "library";
+type Tab = "generate" | "edit" | "characters" | "library";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("generate");
@@ -22,9 +23,9 @@ export default function App() {
       <header>
         <h1>AI Animation Studio</h1>
         <nav>
-          {(["generate", "edit", "library"] as Tab[]).map((t) => (
+          {(["generate", "edit", "characters", "library"] as Tab[]).map((t) => (
             <button key={t} className={t === tab ? "active" : ""} onClick={() => setTab(t)}>
-              {{ generate: "Gambar → Video", edit: "Edit Foto", library: "Library & Extend" }[t]}
+              {{ generate: "Gambar → Video", edit: "Edit Foto", characters: "Karakter", library: "Library & Extend" }[t]}
             </button>
           ))}
         </nav>
@@ -41,6 +42,8 @@ export default function App() {
           addImage={addImage} onCreated={() => setTab("library")} />}
         {tab === "edit" && <EditPage images={list} selected={selected} setSelected={setSelected}
           addImage={addImage} refresh={refreshImages} toVideo={(id) => { setSelected(id); setTab("generate"); }} />}
+        {tab === "characters" && <Characters images={list} selected={selected} setSelected={setSelected}
+          addImage={addImage} refreshImages={refreshImages} />}
         {tab === "library" && <Library refreshImages={refreshImages} />}
       </main>
     </div>

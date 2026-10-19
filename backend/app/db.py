@@ -17,6 +17,19 @@ CREATE TABLE IF NOT EXISTS images (
     estimated_cost REAL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS characters (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    source_image_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS character_images (
+    character_id TEXT NOT NULL,
+    image_id TEXT NOT NULL,
+    label TEXT NOT NULL,           -- source | front | side | three_quarter | full_body | custom
+    PRIMARY KEY (character_id, image_id)
+);
 CREATE TABLE IF NOT EXISTS clips (
     id TEXT PRIMARY KEY,
     parent_clip_id TEXT,
@@ -63,6 +76,8 @@ class Database:
                 if "estimated_cost" not in cols:
                     self._conn.execute(f"ALTER TABLE {table} ADD COLUMN estimated_cost REAL")
             self._conn.execute("PRAGMA user_version = 2")
+        if version < 3:   # v3: tabel characters/character_images dibuat oleh SCHEMA (IF NOT EXISTS)
+            self._conn.execute("PRAGMA user_version = 3")
         self._conn.commit()
 
     def execute(self, sql: str, args: tuple = ()) -> None:

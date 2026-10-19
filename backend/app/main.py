@@ -42,7 +42,7 @@ class ExtendIn(Confirm):
 
 
 class EstimateIn(BaseModel):
-    kind: str = Field(pattern="^(video|image_edit)$")
+    kind: str = Field(pattern="^(video|image_edit|character_sheet)$")
     model: str
     duration: int | None = None
     resolution: str | None = None
@@ -52,6 +52,23 @@ class EstimateIn(BaseModel):
     quality: str | None = None
 
 
+class CharacterIn(BaseModel):
+    name: str = Field(max_length=80)
+    description: str = Field(max_length=2000)
+    source_image_id: str
+
+
+class SheetIn(Confirm):
+    model: str
+    aspect_ratio: str | None = Field(default=None, max_length=20)
+    quality: str | None = Field(default=None, max_length=20)
+
+
+class AddImageIn(BaseModel):
+    image_id: str
+    label: str = Field(default="custom", max_length=30)
+
+
 class EditIn(Confirm):
     prompt: str = Field(max_length=4000)
     model: str
@@ -59,6 +76,7 @@ class EditIn(Confirm):
     resolution: str | None = Field(default=None, max_length=20)
     aspect_ratio: str | None = Field(default=None, max_length=20)
     quality: str | None = Field(default=None, max_length=20)
+    character_id: str | None = None
 
 
 def create_app(settings: Settings | None = None, client: OpenRouterClient | None = None) -> FastAPI:
@@ -100,7 +118,9 @@ def create_app(settings: Settings | None = None, client: OpenRouterClient | None
     @app.post("/api/estimate")
     def estimate(body: EstimateIn, s: Studio = Depends(get_studio)):
         """Perkiraan biaya tanpa efek samping; parameter divalidasi seperti saat generate."""
-        if body.kind == "video":
+        if body.kind == "character_sheet":
+            est = s.estimate_sheet(body.model, len(s.SHEET_VIEWS), body.aspect_ratio, body.quality)
+        elif body.kind == "video":
             params = {k: v for k, v in {"duration": body.duration, "resolution": body.resolution,
                                         "aspect_ratio": body.aspect_ratio}.items() if v is not None}
             params["generate_audio"] = body.generate_audio
@@ -145,7 +165,37 @@ def create_app(settings: Settings | None = None, client: OpenRouterClient | None
         return [public_image(i) for i in s.edit_image(
             image_id, body.prompt, body.model, body.reference_image_ids,
             resolution=body.resolution, aspect_ratio=body.aspect_ratio, quality=body.quality,
-            confirmed_cost=body.confirmed_cost, accept_unknown_cost=body.accept_unknown_cost)]
+            confirmed_cost=body.confirmed_cost, accept_unknown_cost=body.accept_unknown_cost,
+            character_id=body.character_id)]
+
+    def public_character(c: dict) -> dict:
+        return {**c, "images": s_images(c["id"])}
+
+    def s_images(character_id: str) -> list[dict]:
+        return studio.character_images(character_id)
+
+    @app.post("/api/characters")
+    def create_character(body: CharacterIn, s: Studio = Depends(get_studio)):
+        return public_character(s.create_character(body.name, body.description, body.source_image_id))
+
+    @app.get("/api/characters")
+    def list_characters(s: Studio = Depends(get_studio)):
+        return [public_character(c) for c in s.db.all("SELECT * FROM characters ORDER BY created_at DESC")]
+
+    @app.get("/api/characters/{character_id}")
+    def get_character(character_id: str, s: Studio = Depends(get_studio)):
+        return public_character(s.get_character(character_id))
+
+    @app.post("/api/characters/{character_id}/images")
+    def add_character_image(character_id: str, body: AddImageIn, s: Studio = Depends(get_studio)):
+        s.add_character_image(character_id, body.image_id, body.label)
+        return public_character(s.get_character(character_id))
+
+    @app.post("/api/characters/{character_id}/sheet")
+    def character_sheet(character_id: str, body: SheetIn, s: Studio = Depends(get_studio)):
+        s.generate_sheet(character_id, body.model, body.aspect_ratio, body.quality,
+                         body.confirmed_cost, body.accept_unknown_cost)
+        return public_character(s.get_character(character_id))
 
     @app.post("/api/clips")
     def create_clip(body: ClipIn, s: Studio = Depends(get_studio)):

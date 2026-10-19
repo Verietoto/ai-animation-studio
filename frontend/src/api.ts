@@ -7,7 +7,7 @@ export interface VideoModel {
 export interface ParamDesc { type: "enum" | "range" | "boolean"; values?: string[]; min?: number; max?: number }
 export interface ImageModel { id: string; name?: string; supported_parameters?: Record<string, ParamDesc> }
 export interface Img {
-  id: string; parent_image_id: string | null; kind: "upload" | "edit" | "frame";
+  id: string; parent_image_id: string | null; kind: "upload" | "edit" | "frame" | "sheet";
   prompt: string | null; model: string | null; width: number; height: number; cost: number | null; estimated_cost?: number | null;
 }
 export interface Clip {
@@ -47,18 +47,23 @@ const json = (body: unknown): RequestInit => ({
 });
 
 export interface EstimateRequest {
-  kind: "video" | "image_edit"; model: string; duration?: number; resolution?: string; aspect_ratio?: string;
+  kind: "video" | "image_edit" | "character_sheet"; model: string; duration?: number; resolution?: string; aspect_ratio?: string;
   generate_audio?: boolean; reference_count?: number; quality?: string;
 }
 
+export interface Character { id: string; name: string; description: string; source_image_id: string; images: { image_id: string; label: string }[] }
+
 export const api = {
+  characters: () => call<Character[]>("/characters"),
+  createCharacter: (body: { name: string; description: string; source_image_id: string }) => call<Character>("/characters", json(body)),
+  makeSheet: (id: string, body: { model: string; aspect_ratio?: string } & Confirm) => call<Character>(`/characters/${id}/sheet`, json(body)),
   estimate: (body: EstimateRequest) => call<Estimate>("/estimate", json(body)),
   health: () => call<Health>("/health"),
   videoModels: () => call<VideoModel[]>("/models/video"),
   imageModels: () => call<ImageModel[]>("/models/image"),
   images: () => call<Img[]>("/images"),
   upload: (file: File) => { const f = new FormData(); f.append("file", file); return call<Img>("/images", { method: "POST", body: f }); },
-  editImage: (id: string, body: { prompt: string; model: string; reference_image_ids: string[]; resolution?: string; aspect_ratio?: string; quality?: string } & Confirm) =>
+  editImage: (id: string, body: { prompt: string; model: string; reference_image_ids: string[]; resolution?: string; aspect_ratio?: string; quality?: string; character_id?: string } & Confirm) =>
     call<Img[]>(`/images/${id}/edit`, json(body)),
   clips: () => call<Clip[]>("/clips"),
   createClip: (body: Record<string, unknown>) => call<Clip>("/clips", json(body)),

@@ -170,9 +170,14 @@ class Studio:
     def edit_image(self, image_id: str, prompt: str, model: str, reference_ids: list[str],
                    resolution: str | None = None, aspect_ratio: str | None = None,
                    quality: str | None = None, confirmed_cost: float | None = None,
-                   accept_unknown_cost: bool = False) -> list[dict]:
+                   accept_unknown_cost: bool = False, character_id: str | None = None) -> list[dict]:
         if not prompt.strip() or len(prompt) > 4000:
             raise ServiceError("prompt kosong atau terlalu panjang")
+        if character_id:   # kunci karakter: gambar sheet jadi referensi + deskripsi baku masuk ke prompt
+            char = self.get_character(character_id)
+            sheet = [c["image_id"] for c in self.character_images(character_id) if c["image_id"] != image_id]
+            reference_ids = list(dict.fromkeys([*sheet, *reference_ids]))
+            prompt = f"{prompt}\nKeep the character consistent with the reference images: {char['description']}"
         reference_ids = reference_ids[:4]
         options = {k: v for k, v in {"resolution": resolution, "aspect_ratio": aspect_ratio,
                                      "quality": quality}.items() if v}
@@ -180,17 +185,22 @@ class Studio:
         with self._lock:
             est = self.estimate_image_job(model, n_inputs=1 + len(reference_ids), resolution=resolution)
             self.authorize(est, confirmed_cost, accept_unknown_cost)
-            source = self.get_image(image_id)
-            urls = [media.to_data_url(self.storage.resolve(source["path"]).read_bytes())]
-            for rid in reference_ids:
-                urls.append(media.to_data_url(self.storage.resolve(self.get_image(rid)["path"]).read_bytes()))
-            try:
-                resp = self.client.edit_image(model, prompt, urls, **options)
-            except OpenRouterError as exc:
-                raise ServiceError(str(exc), 502) from exc
-            return self._store_edit_results(resp, image_id, prompt, model, est)
+            return self._run_edit(image_id, prompt, model, reference_ids, options, est)
 
-    def _store_edit_results(self, resp: dict, image_id: str, prompt: str, model: str, est: pricing.Estimate) -> list[dict]:
+    def _run_edit(self, image_id: str, prompt: str, model: str, reference_ids: list[str], options: dict,
+                  est: pricing.Estimate, kind: str = "edit") -> list[dict]:
+        source = self.get_image(image_id)
+        urls = [media.to_data_url(self.storage.resolve(source["path"]).read_bytes())]
+        for rid in reference_ids:
+            urls.append(media.to_data_url(self.storage.resolve(self.get_image(rid)["path"]).read_bytes()))
+        try:
+            resp = self.client.edit_image(model, prompt, urls, **options)
+        except OpenRouterError as exc:
+            raise ServiceError(str(exc), 502) from exc
+        return self._store_edit_results(resp, image_id, prompt, model, est, kind)
+
+    def _store_edit_results(self, resp: dict, image_id: str, prompt: str, model: str, est: pricing.Estimate,
+                            kind: str = "edit") -> list[dict]:
         images = [d.get("b64_json") for d in resp.get("data") or [] if d.get("b64_json")]
         if not images:
             raise ServiceError("model tidak mengembalikan gambar", 422)
@@ -201,7 +211,7 @@ class Studio:
                 png, w, h = media.normalize_image(media.from_b64(b64, self.s.max_upload_bytes))
             except media.MediaError as exc:
                 raise ServiceError(f"hasil edit tidak valid: {exc}", 502) from exc
-            out.append(self._save_image(png, w, h, kind="edit", parent=image_id, prompt=prompt, model=model,
+            out.append(self._save_image(png, w, h, kind=kind, parent=image_id, prompt=prompt, model=model,
                                         cost=cost if n == 0 else None, estimated=est.high if n == 0 else None))
         return out
 
@@ -354,3 +364,73 @@ class Studio:
             except Exception:  # worker tidak boleh mati
                 pass
             self._stop.wait(self.s.poll_interval)
+
+
+    # ---------- karakter (plan 03: kunci karakter) ----------
+    SHEET_VIEWS = [
+        ("front", "Character reference sheet: front view of the same character as in the reference image, "
+                  "face fully visible, neutral expression, plain light-gray background."),
+        ("side", "Character reference sheet: side profile view of the same character as in the reference image, "
+                 "plain light-gray background."),
+        ("three_quarter", "Character reference sheet: three-quarter view of the same character as in the reference "
+                          "image, plain light-gray background."),
+        ("full_body", "Character reference sheet: full body, head to toe, standing, front view of the same character "
+                      "as in the reference image, plain light-gray background."),
+    ]
+    SHEET_SUFFIX = " Keep the face, hairstyle, clothing, accessories and colors exactly identical. No text, no labels."
+
+    def create_character(self, name: str, description: str, source_image_id: str) -> dict:
+        if not name.strip() or not description.strip():
+            raise ServiceError("nama dan deskripsi karakter wajib diisi")
+        if len(name) > 80 or len(description) > 2000:
+            raise ServiceError("nama maks 80 dan deskripsi maks 2000 karakter")
+        self.get_image(source_image_id)
+        row = {"id": uuid.uuid4().hex, "name": name.strip(), "description": description.strip(),
+               "source_image_id": source_image_id, "created_at": now()}
+        self.db.insert("characters", row)
+        self.db.insert("character_images", {"character_id": row["id"], "image_id": source_image_id, "label": "source"})
+        return row
+
+    def get_character(self, character_id: str) -> dict:
+        row = self.db.one("SELECT * FROM characters WHERE id = ?", (character_id,))
+        if not row:
+            raise ServiceError("karakter tidak ditemukan", 404)
+        return row
+
+    def character_images(self, character_id: str) -> list[dict]:
+        return self.db.all("SELECT image_id, label FROM character_images WHERE character_id = ? "
+                           "ORDER BY rowid", (character_id,))
+
+    def add_character_image(self, character_id: str, image_id: str, label: str = "custom") -> None:
+        self.get_character(character_id)
+        self.get_image(image_id)
+        self.db.execute("INSERT OR REPLACE INTO character_images (character_id, image_id, label) VALUES (?, ?, ?)",
+                        (character_id, image_id, label[:30]))
+
+    def estimate_sheet(self, model: str, n_views: int, aspect_ratio: str | None = None,
+                       quality: str | None = None) -> pricing.Estimate:
+        options = {k: v for k, v in {"aspect_ratio": aspect_ratio, "quality": quality}.items() if v}
+        self._validate_image_params(model, options, 1)
+        one = self.estimate_image_job(model, n_inputs=1)
+        return pricing.Estimate(one.low * n_views, one.high * n_views, one.confidence,
+                                [f"{n_views} gambar x ({b})" for b in one.basis[:1]] + one.basis[1:])
+
+    def generate_sheet(self, character_id: str, model: str, aspect_ratio: str | None = None,
+                       quality: str | None = None, confirmed_cost: float | None = None,
+                       accept_unknown_cost: bool = False) -> list[dict]:
+        char = self.get_character(character_id)
+        options = {k: v for k, v in {"aspect_ratio": aspect_ratio, "quality": quality}.items() if v}
+        self._validate_image_params(model, options, 1)
+        with self._lock:
+            est = self.estimate_sheet(model, len(self.SHEET_VIEWS), aspect_ratio, quality)
+            self.authorize(est, confirmed_cost, accept_unknown_cost)
+            per_view = pricing.Estimate(est.low / len(self.SHEET_VIEWS), est.high / len(self.SHEET_VIEWS),
+                                        est.confidence, est.basis)
+            out = []
+            for label, prompt in self.SHEET_VIEWS:
+                full = f"{prompt}{self.SHEET_SUFFIX} Character details: {char['description']}"
+                images = self._run_edit(char["source_image_id"], full, model, [], options, per_view, kind="sheet")
+                for img in images:
+                    self.add_character_image(character_id, img["id"], label)
+                out.extend(images)
+            return out
