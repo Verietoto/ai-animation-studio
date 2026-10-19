@@ -65,7 +65,7 @@ Keparahan: **T** tinggi, **S** sedang, **R** rendah.
 - Prompt template berbahasa Indonesia: kemungkinan dipahami lebih lemah oleh model; template default berbahasa Inggris, teks user tetap bebas.
 
 ## Asumsi yang belum terbukti
-- `video_url` lewat data URL ditolak (hanya dari laporan komunitas; bisa diuji gratis? tidak: memerlukan submit job).
+- `video_url` lewat data URL ditolak (hanya dari laporan komunitas; menguji butuh submit job berbayar).
 - Seedance menerima video referensi lewat OpenRouter tanpa `duration=-1`.
 - Batas durasi/ukuran video referensi.
 - Gerakan benar-benar ditransfer, dan audio referensi memengaruhi audio hasil.
