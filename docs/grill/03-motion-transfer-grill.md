@@ -78,5 +78,19 @@ Keparahan: **T** tinggi, **S** sedang, **R** rendah.
 5. Tambah migrasi DB, upload video streaming, aturan rasio, label eksperimental, dan persetujuan hak aset di UI.
 6. Bila spike gagal: berhenti dan tulis keputusan; penyedia di luar OpenRouter dibuat plan terpisah (04), bukan ditambal ke plan ini.
 
+## Tambahan: jalur B (ganti subjek di video)
+11. **(T) Identitas subjek dari gambar mungkin tidak bisa dikunci.** FLUX Video Edit dijelaskan sebagai video + *prompt*; tidak ada bukti gambar objek diterima. Bila hanya prompt, "karakter dari gambar saya" tidak tercapai, hanya "karakter seperti deskripsi".
+    - Mitigasi: spike menguji dengan dan tanpa gambar; bila gambar diabaikan, UI jalur B menjadi berbasis prompt saja dan itu ditulis jelas, atau gambar diubah dulu menjadi deskripsi teks (kurang akurat).
+12. **(S) Format input tak terdokumentasi.** Field video sumber belum diketahui; model tidak punya daftar durasi/resolusi, jadi validasi di backend tidak bisa memakai `/videos/models`.
+    - Mitigasi: spike mencari bentuk request yang diterima; validasi lokal (durasi maksimum, ukuran, resolusi) dari batas yang terbukti.
+13. **(S) Biaya mengikuti panjang video sumber**, bukan pilihan durasi. Video referensi 60 detik = $1,80 di FLUX, $16,80 di Aleph.
+    - Mitigasi: pemotongan wajib ke rentang yang dipilih sebelum kirim; estimasi biaya dari durasi setelah dipotong (masuk pengaman biaya langkah 0).
+14. **(S) Menempel audio asli bisa tidak sinkron** bila model mengubah fps atau durasi sedikit.
+    - Mitigasi: bandingkan durasi hasil vs sumber; potong/pad audio; catat selisih. Bila selisih besar, tawarkan audio terpisah tanpa sinkron.
+15. **(T) Jalur B paling mudah disalahgunakan untuk deepfake**: video orang nyata dengan gerakan dan suara aslinya, wajahnya diganti. Mitigasi yang sama dengan risiko deepfake di atas berlaku lebih ketat: persetujuan hak aset wajib sebelum kirim, dan ditampilkan bahwa suara asli ikut dipakai.
+
+Kriteria lolos spike jalur B: pada 2 dari 2 job, gerakan dan kamera sama dengan sumber, subjek berubah sesuai prompt, latar yang tidak diminta berubah tetap sama. Bonus bila gambar objek terbukti dipakai.
+
 ## Riwayat
 - 2026-10-19: draft awal.
+- 2026-10-19: tambah temuan 11 sampai 15 untuk jalur B (FLUX Video Edit / Aleph 2).
