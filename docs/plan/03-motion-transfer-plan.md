@@ -1,6 +1,6 @@
 # 03 - Motion Transfer (Plan)
 
-- Status: draft (menunggu persetujuan, belum digrill)
+- Status: draft, sudah digrill (lihat `docs/grill/03-motion-transfer-grill.md`), menunggu persetujuan
 - Tanggal: 2026-10-19
 
 ## Tujuan
@@ -35,7 +35,8 @@ Yang **belum terbukti** (inti risiko fitur ini):
 - UI: halaman baru "Tiru Gerakan" dengan pratinjau video referensi dan gambar objek berdampingan.
 
 ## Langkah kerja
-1. **Spike murah** (sebelum membangun apa pun): satu job nyata ke Seedance (varian termurah, 480p, pendek) dengan video referensi di URL publik sementara untuk menjawab: apakah gerakan ditransfer? apakah audio terbawa? format/ukuran apa yang diterima? Hasil dicatat di dokumen grill 03.
+0. **Perbaiki pengaman biaya untuk semua job** (temuan grill 3): estimasi biaya per job sebelum kirim dan `MAX_COST_PER_JOB_USD`.
+1. **Spike murah lewat skrip, tanpa membangun hosting** (temuan grill 1, 2, 5): video referensi di URL publik yang sudah ada, 2 sampai 4 job, anggaran maksimum spike ditetapkan di awal, kriteria lolos konkret di grill 03. Hasil dicatat di dokumen implementasi 03. Bila gagal: berhenti, penyedia lain jadi plan 04.
 2. `PublicMedia` + implementasi pilihan user.
 3. Pra-pemrosesan video referensi (ffprobe, potong, normalisasi, ekstrak audio).
 4. Endpoint `/api/motion` + penyimpanan metadata.
@@ -64,3 +65,4 @@ Seedance 2.5 sekitar $0,10 per detik di 480p (belum termasuk potongan tarif vide
 
 ## Riwayat
 - 2026-10-19: draft awal.
+- 2026-10-19: setelah grill: tambah langkah 0 (pengaman biaya), spike tanpa hosting dengan kriteria konkret, tunnel hanya ke server berkas terpisah, definisi ulang suara, migrasi DB, upload streaming. Rincian di grill 03.
