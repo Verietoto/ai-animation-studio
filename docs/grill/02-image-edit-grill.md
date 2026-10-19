@@ -42,3 +42,4 @@ Plan terkait: `docs/plan/02-image-edit-plan.md`
 
 ## Riwayat
 - 2026-10-16: draft awal.
+- 2026-10-19: temuan nomor 1 (rute API belum pasti) terbukti benar: asumsi Chat Completions salah untuk gpt-image-2. Dikoreksi ke `POST /images`; teruji nyata.

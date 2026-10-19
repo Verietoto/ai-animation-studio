@@ -60,17 +60,16 @@ class FakeOpenRouter:
         if "/videos/" in path:
             return httpx.Response(200, json={"id": path.split("/")[-1], "status": self.video_status,
                                              "usage": {"cost": 0.4}})
-        if path.endswith("/chat/completions"):
+        if path.endswith("/images") and request.method == "POST":
             if not self.edit_returns_image:
-                return httpx.Response(200, json={"choices": [{"message": {"content": "Maaf, tidak bisa."}}]})
-            url = "data:image/png;base64," + base64.b64encode(png_bytes((10, 200, 10))).decode()
-            return httpx.Response(200, json={"choices": [{"message": {"content": "ok", "images": [
-                {"type": "image_url", "image_url": {"url": url}}]}}], "usage": {"cost": 0.01}})
-        if path.endswith("/models"):
-            return httpx.Response(200, json={"data": [{"id": "openai/gpt-image-2",
-                                                      "architecture": {"input_modalities": ["text", "image"]}},
-                                                     {"id": "x/text-only",
-                                                      "architecture": {"input_modalities": ["text"]}}]})
+                return httpx.Response(200, json={"data": [], "usage": {"cost": 0}})
+            b64 = base64.b64encode(png_bytes((10, 200, 10))).decode()
+            return httpx.Response(200, json={"created": 1, "data": [{"b64_json": b64, "media_type": "image/png"}],
+                                             "usage": {"cost": 0.01}})
+        if path.endswith("/images/models"):
+            return httpx.Response(200, json={"data": [
+                {"id": "openai/gpt-image-2", "architecture": {"input_modalities": ["text", "image"]}},
+                {"id": "x/text-only", "architecture": {"input_modalities": ["text"]}}]})
         return httpx.Response(404, json={"error": "unknown"})
 
     def last_json(self, suffix: str) -> dict:

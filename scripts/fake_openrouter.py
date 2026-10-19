@@ -51,15 +51,14 @@ def status(job: str):
     return {"id": job, "status": "completed" if _calls[job] >= 2 else "in_progress", "usage": {"cost": 0.12}}
 
 
-@app.get("/api/v1/models")
+@app.get("/api/v1/images/models")
 def image_models():
     return {"data": [{"id": "openai/gpt-image-2", "architecture": {"input_modalities": ["text", "image"]}}]}
 
 
-@app.post("/api/v1/chat/completions")
-def chat():
+@app.post("/api/v1/images")
+def images():
     buf = io.BytesIO()
     Image.linear_gradient("L").convert("RGB").resize((320, 240)).save(buf, "PNG")
-    url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-    return {"choices": [{"message": {"content": "ok", "images": [{"type": "image_url", "image_url": {"url": url}}]}}],
+    return {"created": 1, "data": [{"b64_json": base64.b64encode(buf.getvalue()).decode(), "media_type": "image/png"}],
             "usage": {"cost": 0.006}}

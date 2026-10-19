@@ -54,15 +54,13 @@ class OpenRouterClient:
             raise OpenRouterError("konten video kosong")
         return data
 
-    # --- image ---
+    # --- image (API Image khusus: POST /images; terverifikasi dari dokumentasi resmi 2026-10-19,
+    #     model gpt-image-2 menolak /chat/completions dengan 404) ---
     def list_image_models(self) -> list[dict]:
-        models = self._request("GET", "/models", params={"output_modalities": "image"}).json().get("data", [])
-        return [m for m in models if "image" in (m.get("architecture", {}).get("input_modalities") or ["image"])]
+        models = self._request("GET", "/images/models").json().get("data", [])
+        return [m for m in models if "image" in (m.get("architecture", {}).get("input_modalities") or [])]
 
-    def edit_image(self, model: str, prompt: str, image_urls: list[str]) -> dict:
-        content = [{"type": "text", "text": prompt}] + [
-            {"type": "image_url", "image_url": {"url": u}} for u in image_urls
-        ]
-        body = {"model": model, "modalities": ["image", "text"],
-                "messages": [{"role": "user", "content": content}]}
-        return self._request("POST", "/chat/completions", json=body).json()
+    def edit_image(self, model: str, prompt: str, image_urls: list[str], **extra: Any) -> dict:
+        body = {"model": model, "prompt": prompt, **extra,
+                "input_references": [{"type": "image_url", "image_url": {"url": u}} for u in image_urls]}
+        return self._request("POST", "/images", json=body).json()

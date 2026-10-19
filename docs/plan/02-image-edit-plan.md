@@ -12,7 +12,7 @@ Mengedit foto dengan prompt di dalam studio (ubah latar, pakaian, gaya, tambah a
 
 ## Riset model OpenRouter (per 2026-10-16, cek ulang saat implementasi)
 - Model yang bisa edit adalah yang punya `image` di input modalities dan `input_references` di `supported_parameters`. Daftar live: `/api/v1/models?output_modalities=image`.
-- Edit bisa dilakukan lewat Chat Completions / Responses dengan modality image, atau rute images yang kompatibel OpenAI. Rute yang dipakai diputuskan saat implementasi setelah dicek di dokumentasi resmi.
+- **Terverifikasi 2026-10-19:** `openai/gpt-image-2` menolak `/chat/completions` (404, "gunakan /api/v1/images"). Rute yang benar adalah API Image khusus: `POST /api/v1/images` dengan `model`, `prompt`, `input_references` (gambar sebagai URL atau data URL base64), opsi `n`, `quality`, `resolution`, `aspect_ratio`; respons `data[].b64_json` + `media_type` + `usage.cost`. Daftar model: `GET /api/v1/images/models`.
 - Satuan harga berbeda per model (per token, per megapiksel, per gambar), jadi harga harus diukur dari biaya nyata per job.
 
 | Peran | Model | Alasan |
@@ -56,3 +56,4 @@ Usul: dibangun setelah image-to-video dasar (01 langkah 1 sampai 3) karena memak
 
 ## Riwayat
 - 2026-10-16: draft awal.
+- 2026-10-19: rute edit dikoreksi ke `POST /images` setelah uji nyata menunjukkan `/chat/completions` ditolak untuk gpt-image-2.

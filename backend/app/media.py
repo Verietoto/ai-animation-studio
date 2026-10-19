@@ -49,7 +49,10 @@ def to_data_url(data: bytes, mime: str = "image/png") -> str:
 def from_data_url(url: str, max_bytes: int) -> bytes:
     if not url.startswith("data:") or "," not in url:
         raise MediaError("bukan data URL")
-    payload = url.split(",", 1)[1]
+    return from_b64(url.split(",", 1)[1], max_bytes)
+
+
+def from_b64(payload: str, max_bytes: int) -> bytes:
     if len(payload) > max_bytes * 4 // 3 + 16:
         raise MediaError("gambar hasil terlalu besar")
     try:

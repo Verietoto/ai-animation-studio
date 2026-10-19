@@ -5,7 +5,7 @@ Grill: `docs/grill/02-image-edit-grill.md`
 
 ## Yang dibangun
 - `POST /api/images/{id}/edit` (prompt, model, hingga 4 gambar referensi) → versi baru `kind=edit` dengan `parent_image_id`.
-- Adapter tunggal `OpenRouterClient.edit_image` lewat Chat Completions dengan `modalities: ["image","text"]`.
+- Adapter tunggal `OpenRouterClient.edit_image` lewat `POST /api/v1/images` dengan `input_references` (awalnya Chat Completions; diganti 2026-10-19 setelah uji nyata).
 - Halaman "Edit Foto": pilih/unggah gambar, prompt, model (daftar dari `/models?output_modalities=image`, bisa diketik), referensi tambahan, tampilan sebelum/sesudah, "Edit lagi dari ini", "Jadikan video".
 
 ## File yang diubah
@@ -30,8 +30,12 @@ Belum: peringatan edit berantai hanya berupa teks statis (tidak menghitung jumla
 ## Pengujian
 Termasuk dalam 21 tes backend dan uji UI end-to-end di `01-video-studio-implementation.md`. Edit nyata ke OpenRouter belum diuji (`scripts/smoke_openrouter.py --edit openai/gpt-image-2`).
 
+## Uji nyata (2026-10-19)
+`scripts/smoke_openrouter.py --edit openai/gpt-image-2` dengan key sungguhan: **berhasil** setelah mengganti rute. Percobaan pertama lewat `/chat/completions` ditolak (404: model gambar harus lewat `/images`), jadi asumsi awal salah dan sudah dikoreksi. Hasil: 1 gambar kembali, `usage.cost` = $0,0151 (quality=low, gambar masukan 512x512). Biaya nyata ~2,5x perkiraan awal di plan ($0,006), jadi angka itu perlu dibaca sebagai batas bawah.
+Daftar model: `GET /images/models` (60 model menerima input gambar).
+
 ## Masalah tersisa
-Bentuk respons `message.images[].image_url.url` mengikuti dokumentasi OpenRouter tetapi belum diverifikasi dengan key nyata.
+Penyaringan hasil dengan lebih dari satu gambar (`n>1`) dan model selain gpt-image-2 belum diuji nyata.
 
 ## Riwayat
 - 2026-10-16: iterasi 1.

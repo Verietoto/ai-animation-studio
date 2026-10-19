@@ -156,18 +156,18 @@ def test_edit_image(api, fake):
     assert r.status_code == 200, r.text
     edited = r.json()[0]
     assert edited["kind"] == "edit" and edited["parent_image_id"] == img["id"] and edited["cost"] == 0.01
-    body = fake.last_json("/chat/completions")
-    assert body["modalities"] == ["image", "text"]
-    assert body["messages"][0]["content"][1]["image_url"]["url"].startswith("data:image/png")
+    body = fake.last_json("/images")
+    assert body["prompt"] == "ubah latar jadi hutan" and "messages" not in body
+    assert body["input_references"][0]["image_url"]["url"].startswith("data:image/png")
     # hasil edit bisa langsung jadi video
     assert api.post("/api/clips", json={**VIDEO, "image_id": edited["id"]}).status_code == 200
 
 
-def test_edit_text_only_reply_is_error_not_new_version(api, fake):
+def test_edit_without_image_in_response_is_error_not_new_version(api, fake):
     img = upload(api)
     fake.edit_returns_image = False
     r = api.post(f"/api/images/{img['id']}/edit", json={"prompt": "x", "model": "openai/gpt-image-2"})
-    assert r.status_code == 422 and "Maaf" in r.json()["detail"]
+    assert r.status_code == 422
     assert len(api.get("/api/images").json()) == 1
 
 

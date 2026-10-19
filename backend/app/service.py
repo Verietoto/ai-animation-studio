@@ -96,16 +96,14 @@ class Studio:
             resp = self.client.edit_image(model, prompt, urls)
         except OpenRouterError as exc:
             raise ServiceError(str(exc), 502) from exc
-        message = (resp.get("choices") or [{}])[0].get("message", {})
-        images = [i.get("image_url", {}).get("url", "") for i in message.get("images") or []]
+        images = [d.get("b64_json") for d in resp.get("data") or [] if d.get("b64_json")]
         if not images:
-            text = (message.get("content") or "")[:300]
-            raise ServiceError(f"model tidak mengembalikan gambar. Balasan: {text or '(kosong)'}", 422)
+            raise ServiceError("model tidak mengembalikan gambar", 422)
         cost = (resp.get("usage") or {}).get("cost")
         out = []
-        for n, url in enumerate(images):
+        for n, b64 in enumerate(images):
             try:
-                png, w, h = media.normalize_image(media.from_data_url(url, self.s.max_upload_bytes))
+                png, w, h = media.normalize_image(media.from_b64(b64, self.s.max_upload_bytes))
             except media.MediaError as exc:
                 raise ServiceError(f"hasil edit tidak valid: {exc}", 502) from exc
             out.append(self._save_image(png, w, h, kind="edit", parent=image_id, prompt=prompt,

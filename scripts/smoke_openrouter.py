@@ -30,9 +30,8 @@ print(f"{len(c.list_image_models())} model gambar yang menerima input gambar")
 buf = io.BytesIO(); Image.new("RGB", (512, 512), (90, 140, 200)).save(buf, "PNG")
 url = media.to_data_url(buf.getvalue())
 if a.edit:
-    r = c.edit_image(a.edit, "tambahkan matahari kuning di pojok", [url])
-    msg = r["choices"][0]["message"]
-    print("edit: images =", len(msg.get("images") or []), "| usage =", r.get("usage"))
+    r = c.edit_image(a.edit, "tambahkan matahari kuning di pojok", [url], quality="low")
+    print("edit: images =", len(r.get("data") or []), "| usage =", r.get("usage"))
 if a.video:
     r = c.submit_video({"model": a.video, "prompt": "kamera zoom pelan", "generate_audio": False,
                         "frame_images": [{"type": "image_url", "image_url": {"url": url}, "frame_type": "first_frame"}]})
