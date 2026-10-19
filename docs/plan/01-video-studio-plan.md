@@ -45,7 +45,7 @@ Container kini bisa menjangkau openrouter.ai. `GET /api/v1/videos/models` (publi
 - Sebagian model bukan image-to-video (`flux-video-edit`, `runway/aleph-2`, `flux-video-upscale`, `heygen/avatar-iv`: `supported_frame_images` kosong/null). UI dan backend hanya menerima model dengan `first_frame`.
 - Model video-ke-video / edit yang ada di katalog: `runway/aleph-2`, `black-forest-labs/flux-video-edit`; `heygen/avatar-iv` = foto jadi talking-head lip-sync dengan `voice_id` (kandidat untuk "suara" di fase 2). `alibaba/wan-2.7` mengekspos passthrough `video`, `videos`, `images`, `audio`. Belum diuji.
 - Seedance 2.5: 4 sampai 30 detik, 480p/720p, audio, first+last frame. Wan 3.0: 2 sampai 30 detik, audio. Kling v3.0 Pro/Std: 3 sampai 15 detik, 720p, audio. Veo 3.1 / Fast / Lite: 4 sampai 8 detik, audio. Harga per model berbeda satuan (`pricing_skus`).
-Endpoint **berotentikasi** (submit, polling, content, chat completions) tetap belum diuji karena key belum tersedia di environment.
+Endpoint **berotentikasi** (submit, polling, content) kemudian **terbukti** dengan job nyata (lihat `docs/implementation/01-video-studio-implementation.md`), termasuk data URL untuk `frame_images`.
 
 ## Ruang lingkup yang TIDAK dikerjakan sekarang
 Editor timeline penuh, akun multi-user, pembayaran, fitur episode (UI dan alurnya).
@@ -93,5 +93,6 @@ Editor timeline penuh, akun multi-user, pembayaran, fitur episode (UI dan alurny
 ## Riwayat
 - 2026-10-16: draft awal.
 - 2026-10-16: stack diputuskan (FastAPI + React); status disetujui.
+- 2026-10-19: job video nyata berhasil; asumsi kontrak terbukti.
 - 2026-10-19: verifikasi nyata daftar model (publik); validasi audio dan filter model image-to-video.
 - 2026-10-16: tambah riset model, hosting media publik, adapter model, tautan ke plan 02.

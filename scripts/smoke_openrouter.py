@@ -19,6 +19,8 @@ from app.openrouter import OpenRouterClient  # noqa: E402
 p = argparse.ArgumentParser()
 p.add_argument("--edit", metavar="MODEL", help="mis. openai/gpt-image-2")
 p.add_argument("--video", metavar="MODEL", help="job video berbayar")
+p.add_argument("--duration", type=int, default=1)
+p.add_argument("--resolution", default="480p")
 a = p.parse_args()
 c = OpenRouterClient(os.environ["OPENROUTER_API_KEY"], os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"))
 
@@ -34,6 +36,7 @@ if a.edit:
     print("edit: images =", len(r.get("data") or []), "| usage =", r.get("usage"))
 if a.video:
     r = c.submit_video({"model": a.video, "prompt": "kamera zoom pelan", "generate_audio": False,
+                        "duration": a.duration, "resolution": a.resolution,
                         "frame_images": [{"type": "image_url", "image_url": {"url": url}, "frame_type": "first_frame"}]})
     print("submit:", r)
     while True:

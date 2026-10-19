@@ -49,10 +49,18 @@ Dengan akses jaringan ke openrouter.ai (tanpa key), diverifikasi terhadap API ny
 ## Verifikasi terhadap dokumentasi resmi video (2026-10-19)
 Dokumentasi resmi video (`/docs/guides/overview/multimodal/video-generation`) cocok dengan asumsi klien: `POST /videos` mengembalikan `id`, `polling_url`, `status`; status `pending|in_progress|completed|failed`; hasil lewat `unsigned_urls` / `GET /videos/{id}/content?index=0` (butuh header Authorization); `usage.cost` ada di respons poll; `frame_images` bentuk `{type:"image_url", image_url:{url}, frame_type}`. Dokumentasi hanya menunjukkan URL HTTPS untuk gambar; **data URL untuk `frame_images` belum terbukti** dan baru bisa dibuktikan dengan satu job video nyata.
 
+## Uji nyata end-to-end (2026-10-19)
+Dijalankan lewat aplikasi (backend sungguhan + OpenRouter sungguhan), model `x-ai/grok-imagine-video-1.5-lite`, 1 detik, 480p. Total biaya **$0,06** (2 job x $0,03; tercatat di `/api/health`).
+- Smoke script: submit -> `pending` -> `completed`, `usage.cost` = 0,03, unduh 68 KB. **Data URL untuk `frame_images` diterima** (tidak perlu storage URL publik untuk gambar).
+- Aplikasi: unggah gambar -> klip 1 `completed` (biaya terbaca 0,03) -> extend (frame terakhir diekstrak dan dikirim) -> klip 2 `completed`, `chain_depth` 1 -> gabung rantai -> file gabungan valid: h264 + aac, 2,08 detik, resolusi seragam.
+- Asumsi kontrak yang kini terbukti: bentuk submit/poll/unduh, nama status, `usage.cost`, `frame_images` dengan data URL, validasi parameter dari `/videos/models`.
+- Belum diuji nyata: model lain selain Grok lite, `last_frame`, `generate_audio=true`, kegagalan job dari provider, UI browser terhadap OpenRouter sungguhan (UI hanya diuji dengan server palsu).
+
 ## Masalah tersisa
-- **Endpoint berotentikasi belum diuji nyata** (submit/polling/content `/videos`, `/chat/completions`): key belum tersedia di environment sesi. Sebelumnya seluruh kontrak belum teruji; kini hanya bagian berikut yang masih asumsi: (tidak ada API key; openrouter.ai tidak bisa diakses dari lingkungan pengembangan). Nama field `frame_images`/`frame_type`/`usage.cost`, bentuk respons job, dan status job (`completed`/`failed`) berasal dari dokumentasi dan dibaca longgar. Jalankan `scripts/smoke_openrouter.py` dengan key untuk memverifikasi; kemungkinan perlu penyesuaian kecil di `openrouter.py`.
-- Apakah data URL diterima untuk `frame_images` belum terbukti; jika ditolak, perlu storage URL publik.
+- Kualitas sambungan extend (kontinuitas gerak dan suara) belum dinilai manusia; hanya diverifikasi secara teknis.
 - Tidak ada autentikasi: hanya untuk lokal.
+- Estimasi biaya sebelum kirim, crossfade, dan storage URL publik belum ada (URL publik hanya diperlukan nanti untuk video referensi).
 
 ## Riwayat
 - 2026-10-16: iterasi 1.
+- 2026-10-19: uji nyata end-to-end (generate, extend, gabung) berhasil; kontrak video terbukti.
