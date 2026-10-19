@@ -15,7 +15,12 @@ from .service import ServiceError, Studio
 from .storage import Storage
 
 
-class ClipIn(BaseModel):
+class Confirm(BaseModel):
+    confirmed_cost: float | None = None      # nilai `high` estimasi yang dilihat user
+    accept_unknown_cost: bool = False
+
+
+class ClipIn(Confirm):
     image_id: str
     prompt: str = Field(max_length=4000)
     model: str
@@ -26,7 +31,7 @@ class ClipIn(BaseModel):
     idempotency_key: str | None = Field(default=None, max_length=100)
 
 
-class ExtendIn(BaseModel):
+class ExtendIn(Confirm):
     prompt: str = Field(max_length=4000)
     model: str
     duration: int | None = None
@@ -36,7 +41,18 @@ class ExtendIn(BaseModel):
     idempotency_key: str | None = Field(default=None, max_length=100)
 
 
-class EditIn(BaseModel):
+class EstimateIn(BaseModel):
+    kind: str = Field(pattern="^(video|image_edit)$")
+    model: str
+    duration: int | None = None
+    resolution: str | None = None
+    aspect_ratio: str | None = None
+    generate_audio: bool = False
+    reference_count: int = Field(default=0, ge=0, le=20)   # gambar referensi tambahan (edit foto)
+    quality: str | None = None
+
+
+class EditIn(Confirm):
     prompt: str = Field(max_length=4000)
     model: str
     reference_image_ids: list[str] = []
@@ -63,7 +79,7 @@ def create_app(settings: Settings | None = None, client: OpenRouterClient | None
 
     @app.exception_handler(ServiceError)
     async def service_error(_: Request, exc: ServiceError):
-        return JSONResponse({"detail": str(exc)}, status_code=exc.status)
+        return JSONResponse({"detail": str(exc), **exc.extra}, status_code=exc.status)
 
     def get_studio() -> Studio:
         return studio
@@ -78,7 +94,30 @@ def create_app(settings: Settings | None = None, client: OpenRouterClient | None
     @app.get("/api/health")
     def health():
         return {"ffmpeg": media.ffmpeg_available(), "api_key": bool(settings.api_key),
-                "spent_today": studio.db.spent_today(), "daily_budget": settings.daily_budget_usd}
+                "spent_today": studio.db.spent_today(), "daily_budget": settings.daily_budget_usd,
+                "max_per_job": settings.max_cost_per_job}
+
+    @app.post("/api/estimate")
+    def estimate(body: EstimateIn, s: Studio = Depends(get_studio)):
+        """Perkiraan biaya tanpa efek samping; parameter divalidasi seperti saat generate."""
+        if body.kind == "video":
+            params = {k: v for k, v in {"duration": body.duration, "resolution": body.resolution,
+                                        "aspect_ratio": body.aspect_ratio}.items() if v is not None}
+            params["generate_audio"] = body.generate_audio
+            s._validate_video_params(body.model, params)
+            est = s.estimate_video_job(body.model, params)
+        else:
+            options = {k: v for k, v in {"resolution": body.resolution, "aspect_ratio": body.aspect_ratio,
+                                         "quality": body.quality}.items() if v}
+            s._validate_image_params(body.model, options, 1 + body.reference_count)
+            est = s.estimate_image_job(body.model, n_inputs=1 + body.reference_count, resolution=body.resolution)
+        state = s.budget_state()
+        blocked = None
+        if est.confidence != "unknown" and est.high > state["max_per_job"]:
+            blocked = f"melebihi batas per job ${state['max_per_job']:.2f}"
+        elif state["committed_today"] + est.high > state["daily_budget"]:
+            blocked = "melebihi batas harian"
+        return {**est.as_dict(), **state, "blocked": blocked}
 
     @app.get("/api/models/video")
     def video_models(s: Studio = Depends(get_studio)):
@@ -105,7 +144,8 @@ def create_app(settings: Settings | None = None, client: OpenRouterClient | None
     def edit_image(image_id: str, body: EditIn, s: Studio = Depends(get_studio)):
         return [public_image(i) for i in s.edit_image(
             image_id, body.prompt, body.model, body.reference_image_ids,
-            resolution=body.resolution, aspect_ratio=body.aspect_ratio, quality=body.quality)]
+            resolution=body.resolution, aspect_ratio=body.aspect_ratio, quality=body.quality,
+            confirmed_cost=body.confirmed_cost, accept_unknown_cost=body.accept_unknown_cost)]
 
     @app.post("/api/clips")
     def create_clip(body: ClipIn, s: Studio = Depends(get_studio)):

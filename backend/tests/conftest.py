@@ -14,10 +14,13 @@ from app.main import create_app
 from app.openrouter import OpenRouterClient
 
 VIDEO_MODEL = {"id": "bytedance/seedance-2.5", "supported_durations": [4, 8],
+               "pricing_skus": {"duration_seconds": "0.05"},
                "supported_resolutions": ["720p"], "supported_aspect_ratios": ["16:9"],
                "supported_frame_images": ["first_frame", "last_frame"], "generate_audio": True}
 NO_AUDIO_MODEL = {"id": "x/no-audio", "supported_durations": [4], "supported_frame_images": ["first_frame"],
-                  "generate_audio": False}
+                  "generate_audio": False, "pricing_skus": {"duration_seconds": "0.1"}}
+UNPRICED_MODEL = {"id": "x/unpriced", "supported_durations": None, "supported_frame_images": ["first_frame"],
+                  "generate_audio": None, "pricing_skus": {}}
 EDIT_ONLY_MODEL = {"id": "x/video-edit", "supported_durations": None, "supported_frame_images": None,
                    "generate_audio": False}
 
@@ -51,7 +54,7 @@ class FakeOpenRouter:
         self.requests.append(request)
         path = request.url.path
         if path.endswith("/videos/models"):
-            return httpx.Response(200, json={"data": [VIDEO_MODEL, NO_AUDIO_MODEL, EDIT_ONLY_MODEL]})
+            return httpx.Response(200, json={"data": [VIDEO_MODEL, NO_AUDIO_MODEL, EDIT_ONLY_MODEL, UNPRICED_MODEL]})
         if path.endswith("/videos") and request.method == "POST":
             self.submit_count += 1
             return httpx.Response(200, json={"id": f"job{self.submit_count}", "status": "pending"})
@@ -66,6 +69,9 @@ class FakeOpenRouter:
             b64 = base64.b64encode(png_bytes((10, 200, 10))).decode()
             return httpx.Response(200, json={"created": 1, "data": [{"b64_json": b64, "media_type": "image/png"}],
                                              "usage": {"cost": 0.01}})
+        if "/images/models/" in path and path.endswith("/endpoints"):
+            return httpx.Response(200, json={"id": "m", "endpoints": [{"provider_name": "P", "pricing": [
+                {"billable": "output_image", "unit": "image", "cost_usd": 0.02}, {"billable": "input_image", "unit": "image", "cost_usd": 0}]}]})
         if path.endswith("/images/models"):
             return httpx.Response(200, json={"data": [
                 {"id": "openai/gpt-image-2", "architecture": {"input_modalities": ["text", "image"]},
@@ -93,13 +99,40 @@ def settings(tmp_path):
                     job_timeout=1800, max_upload_bytes=1024 * 1024, max_chain=2)
 
 
+class ConfirmingClient:
+    """Meniru UI: untuk tiap endpoint generate, minta estimasi lalu kirim `confirmed_cost`.
+    Tes yang menguji konfirmasi memakai `api.raw` (tanpa konfirmasi otomatis)."""
+
+    GENERATE = ("/api/clips", "/extend", "/edit")
+
+    def __init__(self, tc):
+        self.raw = tc
+        self.studio = None
+
+    def __getattr__(self, name):
+        return getattr(self.raw, name)
+
+    def post(self, url, json=None, **kw):
+        if json is not None and any(url.endswith(g) or url == g for g in self.GENERATE) and "confirmed_cost" not in json:
+            model = json["model"]
+            kind = "image_edit" if url.endswith("/edit") else "video"
+            body = {"kind": kind, "model": model, **{k: json[k] for k in ("duration", "resolution", "aspect_ratio", "generate_audio", "quality") if k in json}}
+            body["reference_count"] = len(json.get("reference_image_ids", []))
+            est = self.raw.post("/api/estimate", json=body)
+            if est.status_code == 200:
+                data = est.json()
+                json = {**json, "confirmed_cost": data["high"], "accept_unknown_cost": data["confidence"] == "unknown"}
+        return self.raw.post(url, json=json, **kw)
+
+
 @pytest.fixture
 def api(settings, fake):
     client = OpenRouterClient(settings.api_key, settings.base_url, transport=httpx.MockTransport(fake))
     app = create_app(settings, client)
     with TestClient(app) as tc:
-        tc.studio = app.state.studio
-        yield tc
+        wrapped = ConfirmingClient(tc)
+        wrapped.studio = app.state.studio
+        yield wrapped
 
 
 def upload(api) -> dict:

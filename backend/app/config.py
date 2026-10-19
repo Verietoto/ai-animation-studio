@@ -13,6 +13,7 @@ class Settings:
     job_timeout: float
     max_upload_bytes: int
     max_chain: int
+    max_cost_per_job: float = 1.0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -25,4 +26,5 @@ class Settings:
             job_timeout=float(os.getenv("JOB_TIMEOUT_SECONDS", "1800")),
             max_upload_bytes=int(float(os.getenv("MAX_UPLOAD_MB", "20")) * 1024 * 1024),
             max_chain=int(os.getenv("MAX_EXTEND_CHAIN", "6")),
+            max_cost_per_job=float(os.getenv("MAX_COST_PER_JOB_USD", "1")),
         )

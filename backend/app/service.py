@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import media
+from . import media, pricing
 from .config import Settings
 from .db import Database, now
 from .openrouter import OpenRouterClient, OpenRouterError
@@ -17,9 +17,10 @@ FAIL_STATES = {"failed", "error", "cancelled", "canceled", "expired"}
 
 
 class ServiceError(Exception):
-    def __init__(self, message: str, status: int = 400):
+    def __init__(self, message: str, status: int = 400, extra: dict | None = None):
         super().__init__(message)
         self.status = status
+        self.extra = extra or {}
 
 
 class Studio:
@@ -27,13 +28,67 @@ class Studio:
         self.s, self.db, self.storage, self.client = settings, db, storage, client
         self._models: tuple[float, list[dict]] | None = None
         self._img_models: tuple[float, list[dict]] | None = None
+        self._lock = threading.RLock()   # cek anggaran + pencatatan job harus atomik
+        self._endpoint_cache: dict[str, tuple[float, list[dict]]] = {}
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     # ---------- guard ----------
-    def _check_budget(self) -> None:
-        if self.db.spent_today() >= self.s.daily_budget_usd:
-            raise ServiceError(f"batas biaya harian ${self.s.daily_budget_usd:.2f} tercapai", 402)
+    # ---------- biaya (plan 04) ----------
+    def budget_state(self) -> dict:
+        committed = self.db.committed_today()
+        return {"committed_today": round(committed, 6), "daily_budget": self.s.daily_budget_usd,
+                "remaining": round(max(self.s.daily_budget_usd - committed, 0.0), 6),
+                "max_per_job": self.s.max_cost_per_job}
+
+    def estimate_video_job(self, model: str, params: dict, *, mode: str = "i2v", image_inputs: int = 1,
+                           reference_images: int = 0, video_input_seconds: float = 0.0) -> pricing.Estimate:
+        info = next((m for m in self.video_models() if m.get("id") == model), None)
+        if info is None:
+            raise ServiceError(f"model tidak dikenal: {model}")
+        return pricing.estimate_video(
+            info, duration=params.get("duration"), resolution=params.get("resolution"),
+            audio=bool(params.get("generate_audio")), aspect_ratio=params.get("aspect_ratio"), mode=mode,
+            image_inputs=image_inputs, reference_images=reference_images, video_input_seconds=video_input_seconds)
+
+    def _image_endpoints(self, model: str) -> list[dict]:
+        cached = self._endpoint_cache.get(model)
+        if cached and time.time() - cached[0] < 300:
+            return cached[1]
+        try:
+            endpoints = self.client.get_image_endpoints(model)
+        except OpenRouterError as exc:
+            raise ServiceError(str(exc), 502) from exc
+        self._endpoint_cache[model] = (time.time(), endpoints)
+        return endpoints
+
+    def estimate_image_job(self, model: str, *, n_inputs: int, resolution: str | None = None,
+                           n_outputs: int = 1) -> pricing.Estimate:
+        rows = self.db.all("SELECT cost FROM images WHERE model = ? AND cost IS NOT NULL "
+                           "ORDER BY created_at DESC LIMIT 20", (model,))
+        return pricing.estimate_image(self._image_endpoints(model), n_outputs=n_outputs, n_inputs=n_inputs,
+                                      resolution=resolution, history=[r["cost"] for r in rows] or None)
+
+    def authorize(self, est: pricing.Estimate, confirmed_cost: float | None, accept_unknown: bool) -> None:
+        """Server tidak mempercayai browser: hitung ulang, bandingkan dengan yang dikonfirmasi, cek batas."""
+        info = {"estimate": est.as_dict(), **self.budget_state()}
+        if est.confidence == "unknown":
+            if not accept_unknown:
+                raise ServiceError("biaya tidak diketahui; konfirmasi eksplisit diperlukan "
+                                   "(accept_unknown_cost)", 409, info)
+        else:
+            if confirmed_cost is None:
+                raise ServiceError("konfirmasi estimasi biaya diperlukan (confirmed_cost)", 409, info)
+            if est.high > confirmed_cost + 1e-4:
+                raise ServiceError(f"estimasi berubah menjadi ${est.high:.4f} (dikonfirmasi ${confirmed_cost:.4f}); "
+                                   "konfirmasi ulang", 409, info)
+            if est.high > self.s.max_cost_per_job:
+                raise ServiceError(f"estimasi ${est.high:.4f} melebihi batas per job ${self.s.max_cost_per_job:.2f} "
+                                   "(ubah MAX_COST_PER_JOB_USD bila disengaja)", 402, info)
+        if self.db.committed_today() + est.high > self.s.daily_budget_usd:
+            raise ServiceError(f"melebihi batas harian ${self.s.daily_budget_usd:.2f} "
+                               f"(terpakai/terpesan ${self.db.committed_today():.4f} + estimasi ${est.high:.4f})",
+                               402, info)
 
     def video_models(self) -> list[dict]:
         if self._models and time.time() - self._models[0] < 300:
@@ -97,10 +152,12 @@ class Studio:
         return self._save_image(png, w, h, kind="upload")
 
     def _save_image(self, png: bytes, w: int, h: int, *, kind: str, parent: str | None = None,
-                    prompt: str | None = None, model: str | None = None, cost: float | None = None) -> dict:
+                    prompt: str | None = None, model: str | None = None, cost: float | None = None,
+                    estimated: float | None = None) -> dict:
         path = self.storage.save(png, ".png")
         row = {"id": uuid.uuid4().hex, "parent_image_id": parent, "kind": kind, "prompt": prompt,
-               "model": model, "path": str(path), "width": w, "height": h, "cost": cost, "created_at": now()}
+               "model": model, "path": str(path), "width": w, "height": h, "cost": cost,
+               "estimated_cost": estimated, "created_at": now()}
         self.db.insert("images", row)
         return row
 
@@ -112,22 +169,28 @@ class Studio:
 
     def edit_image(self, image_id: str, prompt: str, model: str, reference_ids: list[str],
                    resolution: str | None = None, aspect_ratio: str | None = None,
-                   quality: str | None = None) -> list[dict]:
+                   quality: str | None = None, confirmed_cost: float | None = None,
+                   accept_unknown_cost: bool = False) -> list[dict]:
         if not prompt.strip() or len(prompt) > 4000:
             raise ServiceError("prompt kosong atau terlalu panjang")
         reference_ids = reference_ids[:4]
         options = {k: v for k, v in {"resolution": resolution, "aspect_ratio": aspect_ratio,
                                      "quality": quality}.items() if v}
         self._validate_image_params(model, options, 1 + len(reference_ids))
-        self._check_budget()
-        source = self.get_image(image_id)
-        urls = [media.to_data_url(self.storage.resolve(source["path"]).read_bytes())]
-        for rid in reference_ids:
-            urls.append(media.to_data_url(self.storage.resolve(self.get_image(rid)["path"]).read_bytes()))
-        try:
-            resp = self.client.edit_image(model, prompt, urls, **options)
-        except OpenRouterError as exc:
-            raise ServiceError(str(exc), 502) from exc
+        with self._lock:
+            est = self.estimate_image_job(model, n_inputs=1 + len(reference_ids), resolution=resolution)
+            self.authorize(est, confirmed_cost, accept_unknown_cost)
+            source = self.get_image(image_id)
+            urls = [media.to_data_url(self.storage.resolve(source["path"]).read_bytes())]
+            for rid in reference_ids:
+                urls.append(media.to_data_url(self.storage.resolve(self.get_image(rid)["path"]).read_bytes()))
+            try:
+                resp = self.client.edit_image(model, prompt, urls, **options)
+            except OpenRouterError as exc:
+                raise ServiceError(str(exc), 502) from exc
+            return self._store_edit_results(resp, image_id, prompt, model, est)
+
+    def _store_edit_results(self, resp: dict, image_id: str, prompt: str, model: str, est: pricing.Estimate) -> list[dict]:
         images = [d.get("b64_json") for d in resp.get("data") or [] if d.get("b64_json")]
         if not images:
             raise ServiceError("model tidak mengembalikan gambar", 422)
@@ -138,15 +201,16 @@ class Studio:
                 png, w, h = media.normalize_image(media.from_b64(b64, self.s.max_upload_bytes))
             except media.MediaError as exc:
                 raise ServiceError(f"hasil edit tidak valid: {exc}", 502) from exc
-            out.append(self._save_image(png, w, h, kind="edit", parent=image_id, prompt=prompt,
-                                        model=model, cost=cost if n == 0 else None))
+            out.append(self._save_image(png, w, h, kind="edit", parent=image_id, prompt=prompt, model=model,
+                                        cost=cost if n == 0 else None, estimated=est.high if n == 0 else None))
         return out
 
     # ---------- clips ----------
     def create_clip(self, *, image_id: str, prompt: str, model: str, duration: int | None = None,
                     resolution: str | None = None, aspect_ratio: str | None = None,
                     generate_audio: bool = False, idempotency_key: str | None = None,
-                    parent_clip_id: str | None = None, chain_depth: int = 0) -> dict:
+                    parent_clip_id: str | None = None, chain_depth: int = 0,
+                    confirmed_cost: float | None = None, accept_unknown_cost: bool = False) -> dict:
         if idempotency_key:
             existing = self.db.one("SELECT * FROM clips WHERE idempotency_key = ?", (idempotency_key,))
             if existing:
@@ -157,26 +221,28 @@ class Studio:
                                     "aspect_ratio": aspect_ratio}.items() if v is not None}
         params["generate_audio"] = generate_audio
         self._validate_video_params(model, params)
-        self._check_budget()
-        image = self.get_image(image_id)
-        data_url = media.to_data_url(self.storage.resolve(image["path"]).read_bytes())
-        payload = {"model": model, "prompt": prompt, **params,
-                   "frame_images": [{"type": "image_url", "image_url": {"url": data_url},
-                                     "frame_type": "first_frame"}]}
-        try:
-            resp = self.client.submit_video(payload)
-        except OpenRouterError as exc:
-            raise ServiceError(str(exc), 502) from exc
-        remote_id = resp.get("id")
-        if not remote_id:
-            raise ServiceError("respons OpenRouter tidak berisi id job", 502)
-        row = {"id": uuid.uuid4().hex, "parent_clip_id": parent_clip_id, "source_image_id": image_id,
-               "prompt": prompt, "model": model, "params": json.dumps(params), "status": "submitted",
-               "remote_job_id": remote_id, "path": None, "merged_path": None, "cost": None,
-               "error": None, "chain_depth": chain_depth, "idempotency_key": idempotency_key,
-               "created_at": now(), "updated_at": now()}
-        self.db.insert("clips", row)
-        return row
+        with self._lock:   # cek anggaran, kirim, dan catat estimasi tanpa celah balapan
+            est = self.estimate_video_job(model, params)
+            self.authorize(est, confirmed_cost, accept_unknown_cost)
+            image = self.get_image(image_id)
+            data_url = media.to_data_url(self.storage.resolve(image["path"]).read_bytes())
+            payload = {"model": model, "prompt": prompt, **params,
+                       "frame_images": [{"type": "image_url", "image_url": {"url": data_url},
+                                         "frame_type": "first_frame"}]}
+            try:
+                resp = self.client.submit_video(payload)
+            except OpenRouterError as exc:
+                raise ServiceError(str(exc), 502) from exc
+            remote_id = resp.get("id")
+            if not remote_id:
+                raise ServiceError("respons OpenRouter tidak berisi id job", 502)
+            row = {"id": uuid.uuid4().hex, "parent_clip_id": parent_clip_id, "source_image_id": image_id,
+                   "prompt": prompt, "model": model, "params": json.dumps(params), "status": "submitted",
+                   "remote_job_id": remote_id, "path": None, "merged_path": None, "cost": None,
+                   "estimated_cost": est.high, "error": None, "chain_depth": chain_depth,
+                   "idempotency_key": idempotency_key, "created_at": now(), "updated_at": now()}
+            self.db.insert("clips", row)
+            return row
 
     def get_clip(self, clip_id: str) -> dict:
         row = self.db.one("SELECT * FROM clips WHERE id = ?", (clip_id,))
@@ -200,8 +266,13 @@ class Studio:
         finally:
             frame_path.unlink(missing_ok=True)
         frame = self._save_image(png, w, h, kind="frame")
-        return self.create_clip(image_id=frame["id"], prompt=prompt, model=model,
-                                parent_clip_id=clip_id, chain_depth=depth, **kw)
+        try:
+            return self.create_clip(image_id=frame["id"], prompt=prompt, model=model,
+                                    parent_clip_id=clip_id, chain_depth=depth, **kw)
+        except ServiceError:   # penolakan (biaya, validasi) tidak boleh meninggalkan frame yatim
+            self.db.execute("DELETE FROM images WHERE id = ?", (frame["id"],))
+            self.storage.resolve(frame["path"]).unlink(missing_ok=True)
+            raise
 
     def merge_chain(self, clip_id: str) -> dict:
         chain, cur = [], self.get_clip(clip_id)

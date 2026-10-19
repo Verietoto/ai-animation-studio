@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS images (
     path TEXT NOT NULL,
     width INTEGER, height INTEGER,
     cost REAL,
+    estimated_cost REAL,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS clips (
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS clips (
     path TEXT,
     merged_path TEXT,
     cost REAL,
+    estimated_cost REAL,
     error TEXT,
     chain_depth INTEGER NOT NULL DEFAULT 0,
     idempotency_key TEXT UNIQUE,
@@ -50,6 +52,18 @@ class Database:
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
+
+    def _migrate(self) -> None:
+        """Migrasi bernomor lewat PRAGMA user_version (CREATE IF NOT EXISTS tidak mengubah tabel lama)."""
+        version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        if version < 2:   # v2: kolom estimated_cost (plan 04)
+            for table in ("images", "clips"):
+                cols = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+                if "estimated_cost" not in cols:
+                    self._conn.execute(f"ALTER TABLE {table} ADD COLUMN estimated_cost REAL")
+            self._conn.execute("PRAGMA user_version = 2")
+        self._conn.commit()
 
     def execute(self, sql: str, args: tuple = ()) -> None:
         with self._lock:
@@ -74,12 +88,15 @@ class Database:
         sets = ", ".join(f"{k} = ?" for k in values)
         self.execute(f"UPDATE {table} SET {sets} WHERE id = ?", (*values.values(), id_))
 
-    def spent_today(self) -> float:
+    def committed_today(self) -> float:
+        """Biaya aktual hari ini; job yang belum punya biaya aktual dihitung dengan estimasinya."""
         day = datetime.now(timezone.utc).date().isoformat()
-        total = 0.0
-        for table in ("clips", "images"):
-            row = self.one(
-                f"SELECT COALESCE(SUM(cost), 0) AS s FROM {table} WHERE created_at >= ?", (day,)
-            )
-            total += row["s"] if row else 0.0
-        return total
+        clips = self.one(
+            "SELECT COALESCE(SUM(COALESCE(cost, CASE WHEN status = 'failed' THEN 0 ELSE estimated_cost END, 0)), 0) AS s "
+            "FROM clips WHERE created_at >= ?", (day,))["s"]
+        images = self.one(
+            "SELECT COALESCE(SUM(COALESCE(cost, estimated_cost, 0)), 0) AS s FROM images WHERE created_at >= ?",
+            (day,))["s"]
+        return clips + images
+
+    spent_today = committed_today

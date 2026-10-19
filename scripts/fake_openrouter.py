@@ -30,7 +30,8 @@ def _video() -> bytes:
 def models():
     return {"data": [{"id": "fake/seedance", "name": "Fake Seedance", "supported_durations": [4, 8],
                       "supported_resolutions": ["720p", "1080p"], "supported_aspect_ratios": ["16:9", "9:16"],
-                      "supported_frame_images": ["first_frame", "last_frame"]}]}
+                      "supported_frame_images": ["first_frame", "last_frame"], "generate_audio": True,
+                      "pricing_skus": {"cents_per_video_output_second_720p": "3", "cents_per_video_output_second_1080p": "14"}}]}
 
 
 @app.post("/api/v1/videos")
@@ -54,6 +55,12 @@ def status(job: str):
 @app.get("/api/v1/images/models")
 def image_models():
     return {"data": [{"id": "openai/gpt-image-2", "architecture": {"input_modalities": ["text", "image"]}}]}
+
+
+@app.get("/api/v1/images/models/{model_path:path}/endpoints")
+def image_endpoints(model_path: str):
+    return {"id": model_path, "endpoints": [{"provider_name": "Fake", "pricing": [
+        {"billable": "output_image", "unit": "image", "cost_usd": 0.02}, {"billable": "input_image", "unit": "image", "cost_usd": 0}]}]}
 
 
 @app.post("/api/v1/images")

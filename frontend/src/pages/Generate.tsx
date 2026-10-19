@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { api, Img } from "../api";
 import { ImagePicker, ModelParams, useAsync, VideoParams } from "../components";
+import { EstimateLine, useConfirmedRun, useEstimate } from "../estimate";
 
 export default function Generate({ images, selected, setSelected, addImage, onCreated }: {
   images: Img[]; selected: string | null; setSelected: (id: string) => void;
@@ -10,19 +11,22 @@ export default function Generate({ images, selected, setSelected, addImage, onCr
   const [model, setModel] = useState("");
   const [params, setParams] = useState<VideoParams>({ generate_audio: false });
   const [prompt, setPrompt] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const key = useRef(crypto.randomUUID()); // satu kunci per percobaan; klik ganda tidak membuat job ganda
 
-  async function submit() {
+  const estBody = model ? { kind: "video" as const, model, ...params } : null;
+  const live = useEstimate(estBody);
+  const runner = useConfirmedRun(() => estBody, async (c) => {
+    await api.createClip({ image_id: selected, prompt, model, ...params, idempotency_key: key.current, ...c });
+    key.current = crypto.randomUUID();
+    onCreated();
+  });
+
+  function submit() {
     if (!selected) return setError("Pilih atau unggah gambar dulu.");
     if (!model) return setError("Pilih model.");
-    setBusy(true); setError(null);
-    try {
-      await api.createClip({ image_id: selected, prompt, model, ...params, idempotency_key: key.current });
-      key.current = crypto.randomUUID();
-      onCreated();
-    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+    setError(null);
+    runner.start();
   }
 
   return (
@@ -35,11 +39,10 @@ export default function Generate({ images, selected, setSelected, addImage, onCr
       </label>
       {models.error ? <p className="error">{models.error}</p> :
         <ModelParams models={models.data ?? []} model={model} setModel={setModel} params={params} setParams={setParams} />}
-      {error && <p className="error">{error}</p>}
-      <button className="primary" disabled={busy || !prompt.trim()} onClick={submit}>
-        {busy ? "Mengirim…" : "Buat video"}
-      </button>
-      <p className="muted">Biaya ditagih per job oleh provider. Batas harian dijaga di server.</p>
+      <EstimateLine est={live.est} error={live.error} />
+      {(error || runner.error) && <p className="error">{error ?? runner.error}</p>}
+      <button className="primary" disabled={!prompt.trim() || !!live.est?.blocked} onClick={submit}>Buat video</button>
+      {runner.dialog}
     </section>
   );
 }

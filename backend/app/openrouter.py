@@ -60,6 +60,9 @@ class OpenRouterClient:
         models = self._request("GET", "/images/models").json().get("data", [])
         return [m for m in models if "image" in (m.get("architecture", {}).get("input_modalities") or [])]
 
+    def get_image_endpoints(self, model: str) -> list[dict]:
+        return self._request("GET", f"/images/models/{model}/endpoints").json().get("endpoints", [])
+
     def edit_image(self, model: str, prompt: str, image_urls: list[str], **extra: Any) -> dict:
         body = {"model": model, "prompt": prompt, **extra,
                 "input_references": [{"type": "image_url", "image_url": {"url": u}} for u in image_urls]}

@@ -1,6 +1,6 @@
 # 04 - Cost Estimate (Plan)
 
-- Status: draft (menunggu persetujuan, belum digrill)
+- Status: disetujui user (2026-10-19), sudah digrill, selesai diimplementasi (lihat `docs/implementation/04-*`)
 - Tanggal: 2026-10-19
 - Asal: permintaan user "setiap pembuatan ada estimasi harga sebelum generate"; menggantikan langkah 0 plan 03 dan menutup bug pengaman biaya (grill 03 nomor 3).
 
@@ -54,5 +54,9 @@ Sebelum setiap job berbayar (gambar ke video, extend, edit foto, tiru gerakan, d
 1. Batas per job default: $1? (Seedance 2.5 720p 10 detik sekitar $2,3 akan ditolak tanpa menaikkan batas.)
 2. Konfirmasi di setiap job, atau hanya bila di atas ambang (mis. > $0,10)?
 
+## Keputusan (dengan nilai bawaan yang diusulkan, disetujui lewat "jalankan plan 3 dan 4")
+- Batas per job $1 (`MAX_COST_PER_JOB_USD`); konfirmasi di setiap job.
+
 ## Riwayat
 - 2026-10-19: draft awal.
+- 2026-10-19: setelah grill (lihat `docs/grill/04-*`): `confirmed_cost` wajib dan dibandingkan di server, batas harian memakai biaya aktual + estimasi job aktif dalam satu kunci, resolusi kosong = rentang konservatif, migrasi DB bernomor.
