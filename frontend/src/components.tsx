@@ -51,6 +51,7 @@ export function ModelParams({ models, model, setModel, params, setParams }: {
   models: VideoModel[]; model: string; setModel: (m: string) => void;
   params: VideoParams; setParams: (p: VideoParams) => void;
 }) {
+  const i2v = models.filter((m) => m.supported_frame_images?.includes("first_frame")); // hanya model image-to-video
   const info = models.find((m) => m.id === model);
   const select = (label: string, key: "duration" | "resolution" | "aspect_ratio", opts?: (string | number)[]) =>
     opts && opts.length > 0 ? (
@@ -65,15 +66,16 @@ export function ModelParams({ models, model, setModel, params, setParams }: {
   return (
     <div className="row">
       <label>Model
-        <select value={model} onChange={(e) => { setModel(e.target.value); setParams({ generate_audio: params.generate_audio }); }}>
+        <select value={model} onChange={(e) => { const next = models.find((m) => m.id === e.target.value); setModel(e.target.value); setParams({ generate_audio: params.generate_audio && next?.generate_audio !== false }); }}>
           <option value="">Pilih model…</option>
-          {models.map((m) => <option key={m.id} value={m.id}>{m.name ?? m.id}</option>)}
+          {i2v.map((m) => <option key={m.id} value={m.id}>{m.name ?? m.id}</option>)}
         </select>
       </label>
       {select("Durasi (detik)", "duration", info?.supported_durations)}
       {select("Resolusi", "resolution", info?.supported_resolutions)}
       {select("Rasio", "aspect_ratio", info?.supported_aspect_ratios)}
-      <label className="check"><input type="checkbox" checked={params.generate_audio}
+      <label className="check"><input type="checkbox" checked={params.generate_audio && info?.generate_audio !== false}
+        disabled={info?.generate_audio === false} title={info?.generate_audio === false ? "Model ini tidak mendukung suara" : ""}
         onChange={(e) => setParams({ ...params, generate_audio: e.target.checked })} /> Suara</label>
     </div>
   );

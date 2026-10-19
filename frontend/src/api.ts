@@ -2,6 +2,7 @@ export interface Health { ffmpeg: boolean; api_key: boolean; spent_today: number
 export interface VideoModel {
   id: string; name?: string;
   supported_durations?: number[]; supported_resolutions?: string[]; supported_aspect_ratios?: string[];
+  supported_frame_images?: string[] | null; generate_audio?: boolean | null;
 }
 export interface ImageModel { id: string; name?: string }
 export interface Img {

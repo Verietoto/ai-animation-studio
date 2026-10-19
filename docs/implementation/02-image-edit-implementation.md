@@ -35,3 +35,4 @@ Bentuk respons `message.images[].image_url.url` mengikuti dokumentasi OpenRouter
 
 ## Riwayat
 - 2026-10-16: iterasi 1.
+- 2026-10-19: daftar model gambar diverifikasi nyata (public); edit nyata via `/chat/completions` masih menunggu key.

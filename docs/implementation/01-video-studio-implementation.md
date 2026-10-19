@@ -43,8 +43,11 @@ Belum ditangani: estimasi biaya sebelum kirim (hanya biaya aktual setelah job), 
 - Uji end-to-end UI dengan Chromium (Playwright) terhadap server nyata + `scripts/fake_openrouter.py`: unggah gambar → buat video → status `completed` → extend → klip kedua `completed` → gabung rantai → edit foto → "Jadikan video". Semua langkah lolos. Satu-satunya error konsol adalah 404 `/favicon.ico`.
 - Pemutaran video tidak diperiksa secara visual: Chromium open-source tidak punya codec H.264, jadi pemutar menampilkan 0:00 di screenshot. Endpoint file mengembalikan 200 dan ffprobe memvalidasi file.
 
+## Verifikasi nyata (2026-10-19)
+Dengan akses jaringan ke openrouter.ai (tanpa key), diverifikasi terhadap API nyata: `GET /videos/models` (30 model, bentuk field sesuai asumsi `openrouter.py`) dan `GET /models?output_modalities=image` (63 model, `architecture.input_modalities` sesuai asumsi; 62 menerima input gambar; model di plan 02 semuanya ada). Dari situ ditambah: penolakan `generate_audio` untuk model tanpa audio, penolakan model non-image-to-video, dan filter model di UI. Tes backend: **23 lulus**.
+
 ## Masalah tersisa
-- **Seluruh kontrak OpenRouter belum diuji nyata** (tidak ada API key; openrouter.ai tidak bisa diakses dari lingkungan pengembangan). Nama field `frame_images`/`frame_type`/`usage.cost`, bentuk respons job, dan status job (`completed`/`failed`) berasal dari dokumentasi dan dibaca longgar. Jalankan `scripts/smoke_openrouter.py` dengan key untuk memverifikasi; kemungkinan perlu penyesuaian kecil di `openrouter.py`.
+- **Endpoint berotentikasi belum diuji nyata** (submit/polling/content `/videos`, `/chat/completions`): key belum tersedia di environment sesi. Sebelumnya seluruh kontrak belum teruji; kini hanya bagian berikut yang masih asumsi: (tidak ada API key; openrouter.ai tidak bisa diakses dari lingkungan pengembangan). Nama field `frame_images`/`frame_type`/`usage.cost`, bentuk respons job, dan status job (`completed`/`failed`) berasal dari dokumentasi dan dibaca longgar. Jalankan `scripts/smoke_openrouter.py` dengan key untuk memverifikasi; kemungkinan perlu penyesuaian kecil di `openrouter.py`.
 - Apakah data URL diterima untuk `frame_images` belum terbukti; jika ditolak, perlu storage URL publik.
 - Tidak ada autentikasi: hanya untuk lokal.
 

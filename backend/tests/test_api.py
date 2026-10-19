@@ -211,3 +211,18 @@ def test_merge_handles_clip_without_audio(tmp_path):
     media.merge_videos([a, b], out)
     info = media.probe(out)
     assert info["has_audio"] and info["duration"] > 1.8
+
+
+def test_audio_rejected_for_model_without_audio(api, fake):
+    img = upload(api)
+    r = api.post("/api/clips", json={"image_id": img["id"], "prompt": "x", "model": "x/no-audio", "generate_audio": True})
+    assert r.status_code == 400 and "suara" in r.json()["detail"]
+    ok = api.post("/api/clips", json={"image_id": img["id"], "prompt": "x", "model": "x/no-audio", "generate_audio": False})
+    assert ok.status_code == 200
+    assert fake.submit_count == 1
+
+
+def test_non_image_to_video_model_rejected(api, fake):
+    img = upload(api)
+    r = api.post("/api/clips", json={"image_id": img["id"], "prompt": "x", "model": "x/video-edit"})
+    assert r.status_code == 400 and fake.submit_count == 0

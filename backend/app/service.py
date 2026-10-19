@@ -55,8 +55,10 @@ class Studio:
             if params.get(key) is not None and allowed and params[key] not in allowed:
                 raise ServiceError(f"{key}={params[key]} tidak didukung {model}; pilihan: {allowed}")
         frames = info.get("supported_frame_images")
-        if frames is not None and "first_frame" not in frames:
-            raise ServiceError(f"{model} tidak mendukung first_frame")
+        if not frames or "first_frame" not in frames:
+            raise ServiceError(f"{model} tidak mendukung gambar sebagai frame awal (bukan model image-to-video)")
+        if params.get("generate_audio") and info.get("generate_audio") is False:
+            raise ServiceError(f"{model} tidak mendukung suara (generate_audio)")
 
     # ---------- images ----------
     def add_upload(self, data: bytes) -> dict:

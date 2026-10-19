@@ -15,7 +15,11 @@ from app.openrouter import OpenRouterClient
 
 VIDEO_MODEL = {"id": "bytedance/seedance-2.5", "supported_durations": [4, 8],
                "supported_resolutions": ["720p"], "supported_aspect_ratios": ["16:9"],
-               "supported_frame_images": ["first_frame", "last_frame"]}
+               "supported_frame_images": ["first_frame", "last_frame"], "generate_audio": True}
+NO_AUDIO_MODEL = {"id": "x/no-audio", "supported_durations": [4], "supported_frame_images": ["first_frame"],
+                  "generate_audio": False}
+EDIT_ONLY_MODEL = {"id": "x/video-edit", "supported_durations": None, "supported_frame_images": None,
+                   "generate_audio": False}
 
 
 def png_bytes(color=(200, 50, 50), size=(64, 48)) -> bytes:
@@ -47,7 +51,7 @@ class FakeOpenRouter:
         self.requests.append(request)
         path = request.url.path
         if path.endswith("/videos/models"):
-            return httpx.Response(200, json={"data": [VIDEO_MODEL]})
+            return httpx.Response(200, json={"data": [VIDEO_MODEL, NO_AUDIO_MODEL, EDIT_ONLY_MODEL]})
         if path.endswith("/videos") and request.method == "POST":
             self.submit_count += 1
             return httpx.Response(200, json={"id": f"job{self.submit_count}", "status": "pending"})
