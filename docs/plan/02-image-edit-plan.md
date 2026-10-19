@@ -56,4 +56,5 @@ Usul: dibangun setelah image-to-video dasar (01 langkah 1 sampai 3) karena memak
 
 ## Riwayat
 - 2026-10-16: draft awal.
+- 2026-10-19: revisi kecil atas permintaan user: pilihan resolusi, rasio, dan kualitas pada form edit, sesuai `supported_parameters` tiap model dari `GET /images/models` (mis. gpt-image-2: rasio + kualitas, tanpa resolusi; Gemini 3 Pro Image/Seedream/Riverflow: resolusi 1K/2K/4K + rasio).
 - 2026-10-19: rute edit dikoreksi ke `POST /images` setelah uji nyata menunjukkan `/chat/completions` ditolak untuk gpt-image-2.

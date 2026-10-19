@@ -226,3 +226,35 @@ def test_non_image_to_video_model_rejected(api, fake):
     img = upload(api)
     r = api.post("/api/clips", json={"image_id": img["id"], "prompt": "x", "model": "x/video-edit"})
     assert r.status_code == 400 and fake.submit_count == 0
+
+
+def test_edit_passes_supported_options(api, fake):
+    img = upload(api)
+    r = api.post(f"/api/images/{img['id']}/edit", json={
+        "prompt": "x", "model": "openai/gpt-image-2", "aspect_ratio": "16:9", "quality": "low"})
+    assert r.status_code == 200, r.text
+    body = fake.last_json("/images")
+    assert body["aspect_ratio"] == "16:9" and body["quality"] == "low" and "resolution" not in body
+
+
+def test_edit_rejects_unsupported_option_before_calling_provider(api, fake):
+    img = upload(api)
+    n = len(fake.requests)
+    bad = api.post(f"/api/images/{img['id']}/edit", json={"prompt": "x", "model": "openai/gpt-image-2", "resolution": "2K"})
+    assert bad.status_code == 400 and "resolution" in bad.json()["detail"]
+    bad = api.post(f"/api/images/{img['id']}/edit", json={"prompt": "x", "model": "openai/gpt-image-2", "aspect_ratio": "5:4"})
+    assert bad.status_code == 400 and "pilihan" in bad.json()["detail"]
+    assert not [r for r in fake.requests[n:] if r.url.path.endswith("/images") and r.method == "POST"]
+
+
+def test_edit_rejects_too_many_input_images(api, fake):
+    img = upload(api)
+    refs = [upload(api)["id"] for _ in range(3)]  # sumber + 3 = 4 > batas 3
+    r = api.post(f"/api/images/{img['id']}/edit", json={"prompt": "x", "model": "openai/gpt-image-2", "reference_image_ids": refs})
+    assert r.status_code == 400 and "maksimal" in r.json()["detail"]
+
+
+def test_edit_rejects_unknown_model(api):
+    img = upload(api)
+    r = api.post(f"/api/images/{img['id']}/edit", json={"prompt": "x", "model": "x/text-only"})
+    assert r.status_code == 400

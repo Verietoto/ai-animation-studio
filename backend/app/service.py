@@ -26,6 +26,7 @@ class Studio:
     def __init__(self, settings: Settings, db: Database, storage: Storage, client: OpenRouterClient):
         self.s, self.db, self.storage, self.client = settings, db, storage, client
         self._models: tuple[float, list[dict]] | None = None
+        self._img_models: tuple[float, list[dict]] | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -43,6 +44,31 @@ class Studio:
             raise ServiceError(str(exc), 502) from exc
         self._models = (time.time(), models)
         return models
+
+    def image_models(self) -> list[dict]:
+        if self._img_models and time.time() - self._img_models[0] < 300:
+            return self._img_models[1]
+        try:
+            models = self.client.list_image_models()
+        except OpenRouterError as exc:
+            raise ServiceError(str(exc), 502) from exc
+        self._img_models = (time.time(), models)
+        return models
+
+    def _validate_image_params(self, model: str, options: dict, n_refs: int) -> None:
+        info = next((m for m in self.image_models() if m.get("id") == model), None)
+        if info is None:
+            raise ServiceError(f"model gambar tidak dikenal atau tidak menerima input gambar: {model}")
+        supported = info.get("supported_parameters") or {}
+        for key, value in options.items():
+            desc = supported.get(key)
+            if desc is None:
+                raise ServiceError(f"{model} tidak mendukung parameter {key}")
+            if desc.get("type") == "enum" and value not in desc.get("values", []):
+                raise ServiceError(f"{key}={value} tidak didukung {model}; pilihan: {desc['values']}")
+        limit = (supported.get("input_references") or {}).get("max")
+        if limit is not None and n_refs > limit:
+            raise ServiceError(f"{model} menerima maksimal {limit} gambar input (dikirim {n_refs})")
 
     def _validate_video_params(self, model: str, params: dict) -> None:
         info = next((m for m in self.video_models() if m.get("id") == model), None)
@@ -84,16 +110,22 @@ class Studio:
             raise ServiceError("gambar tidak ditemukan", 404)
         return row
 
-    def edit_image(self, image_id: str, prompt: str, model: str, reference_ids: list[str]) -> list[dict]:
+    def edit_image(self, image_id: str, prompt: str, model: str, reference_ids: list[str],
+                   resolution: str | None = None, aspect_ratio: str | None = None,
+                   quality: str | None = None) -> list[dict]:
         if not prompt.strip() or len(prompt) > 4000:
             raise ServiceError("prompt kosong atau terlalu panjang")
+        reference_ids = reference_ids[:4]
+        options = {k: v for k, v in {"resolution": resolution, "aspect_ratio": aspect_ratio,
+                                     "quality": quality}.items() if v}
+        self._validate_image_params(model, options, 1 + len(reference_ids))
         self._check_budget()
         source = self.get_image(image_id)
         urls = [media.to_data_url(self.storage.resolve(source["path"]).read_bytes())]
-        for rid in reference_ids[:4]:
+        for rid in reference_ids:
             urls.append(media.to_data_url(self.storage.resolve(self.get_image(rid)["path"]).read_bytes()))
         try:
-            resp = self.client.edit_image(model, prompt, urls)
+            resp = self.client.edit_image(model, prompt, urls, **options)
         except OpenRouterError as exc:
             raise ServiceError(str(exc), 502) from exc
         images = [d.get("b64_json") for d in resp.get("data") or [] if d.get("b64_json")]

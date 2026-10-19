@@ -68,7 +68,11 @@ class FakeOpenRouter:
                                              "usage": {"cost": 0.01}})
         if path.endswith("/images/models"):
             return httpx.Response(200, json={"data": [
-                {"id": "openai/gpt-image-2", "architecture": {"input_modalities": ["text", "image"]}},
+                {"id": "openai/gpt-image-2", "architecture": {"input_modalities": ["text", "image"]},
+                 "supported_parameters": {
+                     "aspect_ratio": {"type": "enum", "values": ["1:1", "16:9", "auto"]},
+                     "quality": {"type": "enum", "values": ["auto", "low", "high"]},
+                     "input_references": {"type": "range", "min": 0, "max": 3}}},
                 {"id": "x/text-only", "architecture": {"input_modalities": ["text"]}}]})
         return httpx.Response(404, json={"error": "unknown"})
 

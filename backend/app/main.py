@@ -40,6 +40,9 @@ class EditIn(BaseModel):
     prompt: str = Field(max_length=4000)
     model: str
     reference_image_ids: list[str] = []
+    resolution: str | None = Field(default=None, max_length=20)
+    aspect_ratio: str | None = Field(default=None, max_length=20)
+    quality: str | None = Field(default=None, max_length=20)
 
 
 def create_app(settings: Settings | None = None, client: OpenRouterClient | None = None) -> FastAPI:
@@ -83,11 +86,7 @@ def create_app(settings: Settings | None = None, client: OpenRouterClient | None
 
     @app.get("/api/models/image")
     def image_models(s: Studio = Depends(get_studio)):
-        from .openrouter import OpenRouterError
-        try:
-            return s.client.list_image_models()
-        except OpenRouterError as exc:
-            raise ServiceError(str(exc), 502) from exc
+        return s.image_models()
 
     @app.post("/api/images")
     async def upload_image(file: UploadFile = File(...), s: Studio = Depends(get_studio)):
@@ -104,8 +103,9 @@ def create_app(settings: Settings | None = None, client: OpenRouterClient | None
 
     @app.post("/api/images/{image_id}/edit")
     def edit_image(image_id: str, body: EditIn, s: Studio = Depends(get_studio)):
-        return [public_image(i) for i in s.edit_image(image_id, body.prompt, body.model,
-                                                      body.reference_image_ids)]
+        return [public_image(i) for i in s.edit_image(
+            image_id, body.prompt, body.model, body.reference_image_ids,
+            resolution=body.resolution, aspect_ratio=body.aspect_ratio, quality=body.quality)]
 
     @app.post("/api/clips")
     def create_clip(body: ClipIn, s: Studio = Depends(get_studio)):

@@ -4,7 +4,8 @@ export interface VideoModel {
   supported_durations?: number[]; supported_resolutions?: string[]; supported_aspect_ratios?: string[];
   supported_frame_images?: string[] | null; generate_audio?: boolean | null;
 }
-export interface ImageModel { id: string; name?: string }
+export interface ParamDesc { type: "enum" | "range" | "boolean"; values?: string[]; min?: number; max?: number }
+export interface ImageModel { id: string; name?: string; supported_parameters?: Record<string, ParamDesc> }
 export interface Img {
   id: string; parent_image_id: string | null; kind: "upload" | "edit" | "frame";
   prompt: string | null; model: string | null; width: number; height: number; cost: number | null;
@@ -35,7 +36,7 @@ export const api = {
   imageModels: () => call<ImageModel[]>("/models/image"),
   images: () => call<Img[]>("/images"),
   upload: (file: File) => { const f = new FormData(); f.append("file", file); return call<Img>("/images", { method: "POST", body: f }); },
-  editImage: (id: string, body: { prompt: string; model: string; reference_image_ids: string[] }) =>
+  editImage: (id: string, body: { prompt: string; model: string; reference_image_ids: string[]; resolution?: string; aspect_ratio?: string; quality?: string }) =>
     call<Img[]>(`/images/${id}/edit`, json(body)),
   clips: () => call<Clip[]>("/clips"),
   createClip: (body: Record<string, unknown>) => call<Clip>("/clips", json(body)),

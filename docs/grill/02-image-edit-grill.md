@@ -42,4 +42,5 @@ Plan terkait: `docs/plan/02-image-edit-plan.md`
 
 ## Riwayat
 - 2026-10-16: draft awal.
+- 2026-10-19: grill revisi resolusi/rasio/kualitas: (1) opsi tiap model berbeda, jadi UI dan backend harus memvalidasi terhadap `supported_parameters` model dan menolak sebelum biaya keluar; (2) jumlah gambar input ada batas per model (`input_references.max`, mis. 3 sampai 16) yang harus dicek; (3) resolusi/rasio memengaruhi biaya, ditangani di plan 04; (4) rasio hasil `auto` bisa berbeda dari gambar sumber, ukuran hasil ditampilkan.
 - 2026-10-19: temuan nomor 1 (rute API belum pasti) terbukti benar: asumsi Chat Completions salah untuk gpt-image-2. Dikoreksi ke `POST /images`; teruji nyata.

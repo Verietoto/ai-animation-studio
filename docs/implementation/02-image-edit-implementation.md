@@ -37,6 +37,14 @@ Daftar model: `GET /images/models` (60 model menerima input gambar).
 ## Masalah tersisa
 Penyaringan hasil dengan lebih dari satu gambar (`n>1`) dan model selain gpt-image-2 belum diuji nyata.
 
+## Revisi 2026-10-19: resolusi, rasio, kualitas
+- Backend: `EditIn` menerima `resolution`, `aspect_ratio`, `quality`; `Studio._validate_image_params` memeriksa terhadap `supported_parameters` model (parameter tak didukung, nilai enum di luar daftar, jumlah gambar input melebihi `input_references.max`) dan menolak 400 sebelum memanggil provider. Daftar model gambar di-cache 5 menit (`Studio.image_models`).
+- Frontend: Edit Foto menampilkan dropdown Resolusi/Rasio/Kualitas hanya bila model mendukungnya.
+- Tes: 27 lulus (+4: opsi diteruskan ke provider, opsi tak didukung ditolak tanpa panggilan, terlalu banyak gambar input, model tak dikenal).
+- **Uji nyata:** `openai/gpt-image-2` lewat aplikasi: `resolution=2K` ditolak lokal (model tak punya parameter itu); `aspect_ratio=16:9` + `quality=low` diterima, hasil **1536x864**, biaya **$0,0119**.
+- Belum: estimasi biaya yang ikut berubah menurut resolusi/rasio (plan 04); `n>1`.
+
 ## Riwayat
 - 2026-10-16: iterasi 1.
+- 2026-10-19: revisi resolusi/rasio/kualitas (lihat di atas).
 - 2026-10-19: daftar model gambar diverifikasi nyata (public); edit nyata via `/chat/completions` masih menunggu key.
