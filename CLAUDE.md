@@ -34,5 +34,6 @@ Sebelum menulis kode untuk fitur apa pun, agent HARUS menyelesaikan tiga tahap b
 - Jangan menulis kode fitur sebelum `plan` dan `grill` untuk fitur itu ada.
 - Jangan menandai fitur selesai tanpa file `implementation` dan bukti tes yang benar-benar dijalankan.
 - Jangan menghapus atau menulis ulang dokumen lama; tambahkan revisi di bagian "Riwayat" pada dokumen itu.
+- **Pengujian frontend dilakukan user sendiri.** Agent (termasuk `implementer`) tidak boleh membuka browser, menjalankan dev server untuk uji manual, mengambil screenshot, atau mengklik-klik UI. Cukup `cd frontend && npm run build` (tsc + vite) dan, untuk backend, `make test`. Di file `implementation`, bagian uji frontend ditulis sebagai "diuji manual oleh user" (daftar alur yang perlu dicoba), bukan hasil yang diklaim agent.
 
 Sub-agent khusus tahap ada di `.claude/agents/` (`planner`, `grill`, `implementer`).

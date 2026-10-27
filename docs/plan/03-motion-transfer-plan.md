@@ -102,3 +102,4 @@ Total spike: sekitar $1,10 tanpa Aleph, sampai $2,50 bila Aleph dipakai. Biaya n
 - 2026-10-19: tambah bagian "Kunci karakter" (entitas karakter, character sheet, anchor frame + Aleph keyframes, cek konsistensi) dan pindahkan estimasi biaya ke plan 04, atas permintaan user.
 - 2026-10-19: tambah jalur B (ganti subjek di video: FLUX Video Edit, cadangan Aleph 2) atas persetujuan user; spike dua jalur, anggaran usulan $3.
 - 2026-10-19: setelah grill: tambah langkah 0 (pengaman biaya), spike tanpa hosting dengan kriteria konkret, tunnel hanya ke server berkas terpisah, definisi ulang suara, migrasi DB, upload streaming. Rincian di grill 03.
+- 2026-10-21: backend plan ini (commit WIP `75b5c44`) diberi test, diperbaiki (4 bug), dan diberi UI lewat plan 09 (`docs/plan/09-frame-and-motion-reference-plan.md`). Status dan hasilnya dicatat di `docs/implementation/09-frame-and-motion-reference-implementation.md`.
