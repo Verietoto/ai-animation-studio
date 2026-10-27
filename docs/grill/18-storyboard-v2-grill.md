@@ -207,3 +207,18 @@ Tingkat: (B) berat = mengubah desain, (S) sedang = perlu mitigasi di kode, (R) r
 | R10-6 | Nomor ADEGAN/durasi berubah. | Aturan prompt "nomor tetap"; durasi >15 dtk ditolak oleh `parse`. |
 | R10-7 | Biaya ganda saat ulang. | Estimasi batas atas, konfirmasi yang sama, kedua panggilan tercatat. |
 | R10-8 | Draf menimpa teks tanpa sadar. | Hanya masuk ke editor lewat "Terapkan"; editor lalu "belum disimpan" dan bisa "Batalkan perubahan". |
+
+---
+
+## Grill Revisi 11 — pilih adegan sumber frame awal
+
+| # | Temuan | Mitigasi |
+|---|---|---|
+| R11-1 | Migrasi data lama (`start_from_prev = 1`). | Diisi id adegan tepat sebelumnya (posisi - 1, episode sama) saat migrasi; tes migrasi v18 → v19. `start_from_prev` tak dibaca lagi. |
+| R11-2 | Adegan sumber dihapus (satuan, massal, hapus episode). | Semua jalur hapus mengosongkan `start_from_scene_id` yang menunjuk ke sana; tes. |
+| R11-3 | Sumber di episode lain atau workspace lain. | Validasi: sumber harus satu `film_id` dengan adegan ini dan bukan dirinya (422); workspace dicek lewat `_scene`. |
+| R11-4 | Rantai melingkar (A dari B, B dari A). | Aman: hanya butuh klip selesai, tidak rekursif. Batch: keduanya "menunggu" sampai salah satu punya video (tidak macet karena user bisa membuat salah satu tanpa frame awal). |
+| R11-5 | Sumber tanpa video selesai / berkas hilang. | `start_info` per sumber; generate 422; pratinjau non-strict + daftar kandidat dengan alasan. |
+| R11-6 | Duplikat adegan. | Tidak menyalin pilihan (bawaan Tidak). |
+| R11-7 | Adegan diurutkan ulang: nomor sumber bergeser. | Disimpan sebagai id, nomor dihitung saat tampil/generate (`start_from_number`). |
+| R11-8 | Klaim keamanan klien: id sembarang. | Validasi server (R11-3); id tak dikenal → 404/422. |

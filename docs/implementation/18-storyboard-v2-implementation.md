@@ -288,3 +288,25 @@ Belum ada UI v2; belum ada yang perlu diuji.
 2. "Terapkan ke editor" → muncul "belum disimpan" → Simpan prompt → kartu aset, baris adegan, dan langkah Beat mengikuti.
 3. Ketik di editor tanpa menyimpan: tombol "Minta revisi AI" terkunci dengan penjelasan.
 4. "Buang": tidak ada yang berubah. Instruksi kosong: tombol nonaktif.
+
+---
+
+## Revisi 11 — Pilih adegan sumber frame awal
+
+**Dibangun**
+- `db.py` migrasi **v19**: `scenes.start_from_scene_id`; data lama `start_from_prev = 1` dipetakan ke id adegan tepat sebelumnya (episode sama). `start_from_prev` tidak lagi dibaca/ditulis (kolom dibiarkan).
+- `Scenes`: `start_from_scene_id` di `SCENE_FIELDS`/`SceneUpdateIn`; validasi: bukan dirinya sendiri, harus satu episode (422); `public` mengembalikan `start_from_scene_id` dan `start_from_number` (dihitung saat tampil, jadi mengikuti pengurutan ulang). Hapus satuan dan hapus massal mengosongkan pilihan yang menunjuk adegan terhapus.
+- `StoryboardVideo`: `start_info(scene, ws, source_id)` per adegan sumber yang dipilih (bukan `position - 1`), `start_candidates` (semua adegan lain + `ok`/alasan), pratinjau mengembalikan `start_from_scene_id`, `start_candidates`, `start_info`. Cara kirim tidak berubah (`first_frame`, tanpa `input_references`).
+- Frontend: kotak centang diganti `<select>` "Mulai dari frame akhir" (Tidak / Adegan N · video selesai, adegan tanpa video nonaktif dengan alasannya); baris adegan menampilkan nomor sumber; batch menunggu adegan sumber yang dipilih.
+
+**Temuan grill → penanganan**: R11-1 tes migrasi v18→v19; R11-2 tes hapus satuan + massal; R11-3 validasi satu episode/bukan diri sendiri; R11-5 kandidat dengan alasan; R11-6 duplikat tidak menyalin pilihan; R11-7 tes pengurutan ulang (id tetap, nomor bergeser).
+
+**Hasil tes (dijalankan)**: `make test` → 432 lulus (`tests/test_start_frame.py` diperbarui: validasi, tanpa video selesai, `first_frame` tanpa `input_references`, tak ada frame yatim, previs 422, hapus sumber, adegan 3 memilih adegan 1 + kandidat + pengurutan ulang, hapus massal, migrasi). `npm run build` hijau.
+
+**Belum terbukti**: perilaku nyata Seedance dengan `frame_images` saja (seperti Revisi 9). Hanya frame terakhir yang bisa dipilih; sumber dari episode lain tidak didukung.
+
+**Diuji manual oleh user**
+1. Langkah 6 → "Siapkan video…" di adegan 22 (atau adegan mana pun): dropdown "Mulai dari frame akhir" menampilkan semua adegan lain; yang belum punya video nonaktif dengan alasan.
+2. Pilih adegan 2 → kartu "Frame awal" menampilkan frame akhir video adegan 2; baris adegan 22 menulis "berantai dari frame akhir adegan 2".
+3. Ubah urutan adegan: nomor sumber ikut berubah; hapus adegan sumber: dropdown kembali ke "Tidak".
+4. Adegan lama yang sebelumnya tercentang: sekarang terpilih ke adegan sebelumnya.

@@ -436,3 +436,29 @@ Model mengubah bagian yang tidak diminta; mengembalikan lebih dari satu blok ata
 
 ### Riwayat
 - Revisi 10: ubah adegan dengan AI di langkah Adegan (Revisi 1–9 tidak diubah).
+
+---
+
+## Revisi 11 — Pilih adegan sumber frame awal (bukan hanya adegan sebelumnya)
+
+Permintaan user: "dimana pengaturan untuk mulai dari frame terakhir adegan yang dipilih (misalnya aku di adegan 22 mau lanjut dari frame terakhir adegan 2)". Revisi 9 hanya menyediakan kotak centang "adegan sebelumnya".
+
+### Perilaku
+Di panel video langkah 6, kotak centang diganti **pilihan "Mulai dari frame akhir"**: `Tidak` (bawaan) atau salah satu adegan lain di episode yang sama, mis. "Adegan 2 · video selesai". Adegan tanpa video selesai tampil nonaktif dengan alasannya. Adegan 22 bisa memilih adegan 2, atau adegan 21 (perilaku lama), atau adegan lain mana pun.
+
+### Desain
+1. **Migrasi v19**: kolom baru `scenes.start_from_scene_id TEXT`. Data lama: baris dengan `start_from_prev = 1` diisi id adegan yang tepat sebelumnya (posisi - 1 di episode yang sama) saat migrasi; `start_from_prev` tidak lagi dibaca (kolom dibiarkan, tidak dihapus). Satu sumber kebenaran: `start_from_scene_id`.
+2. **API**: `SceneUpdateIn.start_from_scene_id: str | None` (null = tidak ada). Validasi: adegan harus ada di episode (film) yang sama, bukan adegan itu sendiri (422). `Scenes.public` mengembalikan `start_from_scene_id` dan `start_from_number` (nomor adegan sumber, atau null). Field `start_from_prev` dihapus dari API/UI (tes diperbarui).
+3. **`StoryboardVideo.start_info`** memakai adegan sumber yang dipilih (bukan `position - 1`): butuh klip `completed` dengan berkas ada; bila adegan sumber dihapus, kolom dikosongkan (hapus adegan membersihkan referensi) dan pratinjau memberi peringatan. Pratinjau mengembalikan `start_candidates`: `[{id, number, ok, reason}]` untuk dropdown.
+4. **Pengiriman**: tidak berubah (frame akhir klip sumber → `first_frame`, tanpa `input_references`); `params.start_from` mencatat nomor dan klip sumber.
+5. **Batch** menunggu adegan sumber yang dipilih (bukan sebelumnya) sampai videonya selesai; catatan "menunggu adegan N" memakai nomor sumber.
+6. **UI**: `<select>` "Mulai dari frame akhir" di panel video; baris adegan menampilkan "berantai dari frame akhir adegan N" memakai nomor sumber yang dipilih.
+
+### Di luar lingkup
+Memilih frame di tengah video (hanya frame terakhir); sumber dari episode lain; `last_frame`; peringatan otomatis saat video sumber diganti.
+
+### Risiko untuk digrill
+Migrasi data lama; adegan sumber dihapus atau dipindah episode; rantai melingkar (A dari B, B dari A: aman karena hanya butuh klip selesai, bukan rekursi); sumber tanpa video; duplikat adegan menyalin pilihan; hapus massal adegan; isolasi workspace.
+
+### Riwayat
+- Revisi 11: pilih adegan sumber frame awal (Revisi 1–10 tidak diubah; menggantikan boolean Revisi 9).
