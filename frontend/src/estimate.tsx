@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { Coins } from "lucide-react";
 import { api, ApiError, Estimate, EstimateRequest } from "./api";
+import { Portal } from "./ui";
 
 export const money = (n: number) => (n === 0 ? "$0" : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
 
@@ -37,14 +39,14 @@ export function useEstimate(body: EstimateRequest | null) {
 }
 
 export function EstimateLine({ est, error }: { est: Estimate | null; error: string | null }) {
-  if (error) return <p className="muted">Perkiraan biaya tidak tersedia: {error}</p>;
-  if (!est) return <p className="muted">Perkiraan biaya muncul setelah model dipilih.</p>;
+  if (error) return <div className="cost"><Coins size={16} /> Perkiraan biaya tidak tersedia: {error}</div>;
+  if (!est) return <div className="cost"><Coins size={16} /> Perkiraan biaya muncul setelah model dipilih.</div>;
   return (
-    <p className={`estimate ${est.blocked ? "error" : ""}`}>
-      Perkiraan biaya: <strong>{rangeText(est)}</strong>
-      <span className="muted"> ({CONFIDENCE[est.confidence]})</span>
-      {est.blocked && <> · <strong>ditolak: {est.blocked}</strong></>}
-    </p>
+    <div className={`cost ${est.blocked ? "blocked" : ""}`}>
+      <Coins size={16} /> <strong>{rangeText(est)}</strong>
+      <span>{CONFIDENCE[est.confidence]}</span>
+      {est.blocked && <strong>ditolak: {est.blocked}</strong>}
+    </div>
   );
 }
 
@@ -75,8 +77,8 @@ export function ConfirmDialog({ est, busy, error, onConfirm, onCancel }: {
         )}
         {error && <p className="error">{error}</p>}
         <div className="actions">
-          <button onClick={onCancel} disabled={busy}>Batal</button>
-          <button className="primary" disabled={busy || cannot}
+          <button className="btn" onClick={onCancel} disabled={busy}>Batal</button>
+          <button className="btn primary" disabled={busy || cannot}
             onClick={() => onConfirm({ confirmed_cost: unknown ? null : est.high, accept_unknown_cost: unknown })}>
             {busy ? "Mengirim…" : "Setuju, generate"}
           </button>
@@ -109,7 +111,7 @@ export function useConfirmedRun(buildEstimate: () => EstimateRequest | null,
       } else { setError((e as Error).message); }
     } finally { setBusy(false); }
   }
-  const dialog = pending && <ConfirmDialog est={pending} busy={busy} error={error} onConfirm={confirm}
-    onCancel={() => { setPending(null); setError(null); }} />;
+  const dialog = pending && <Portal><ConfirmDialog est={pending} busy={busy} error={error} onConfirm={confirm}
+    onCancel={() => { setPending(null); setError(null); }} /></Portal>;
   return { start, dialog, error: pending ? null : error };
 }
