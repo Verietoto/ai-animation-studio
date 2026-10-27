@@ -174,6 +174,23 @@ CREATE TABLE IF NOT EXISTS clips (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS comic_panels (   -- panel komik (plan 21): gambar AI + balon overlay
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    character_ids TEXT NOT NULL DEFAULT '[]',   -- JSON: [character_id] berurutan
+    location_id TEXT,
+    shot TEXT NOT NULL DEFAULT 'MS',
+    angle TEXT NOT NULL DEFAULT 'eye',
+    aspect_ratio TEXT NOT NULL DEFAULT '4:3',
+    comic_style TEXT NOT NULL DEFAULT 'project',
+    bubbles TEXT NOT NULL DEFAULT '[]',         -- JSON: [{id, kind, character_id, text, x, y, w, h, tail_x, tail_y}] relatif 0..1
+    image_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_comic_panels_ws ON comic_panels (workspace_id, created_at);
 """
 
 
@@ -353,6 +370,17 @@ class Database:
             if "start_from_prev" not in {r["name"] for r in self._conn.execute("PRAGMA table_info(scenes)")}:
                 self._conn.execute("ALTER TABLE scenes ADD COLUMN start_from_prev INTEGER NOT NULL DEFAULT 0")
             self._conn.execute("PRAGMA user_version = 18")
+        if version < 19:   # v19: adegan sumber frame awal dipilih (plan 18 Revisi 11); menggantikan boolean start_from_prev
+            if "start_from_scene_id" not in {r["name"] for r in self._conn.execute("PRAGMA table_info(scenes)")}:
+                self._conn.execute("ALTER TABLE scenes ADD COLUMN start_from_scene_id TEXT")
+            self._conn.execute(   # data lama: "adegan sebelumnya" menjadi id adegan tepat sebelumnya di episode yang sama
+                "UPDATE scenes SET start_from_scene_id = (SELECT p.id FROM scenes p WHERE p.film_id = scenes.film_id AND p.position = scenes.position - 1) "
+                "WHERE start_from_prev = 1")
+            self._conn.execute("PRAGMA user_version = 19")
+        if version < 20:   # v20: panel komik (plan 21); tabel comic_panels dibuat oleh SCHEMA, take = images.panel_id
+            if "panel_id" not in {r["name"] for r in self._conn.execute("PRAGMA table_info(images)")}:
+                self._conn.execute("ALTER TABLE images ADD COLUMN panel_id TEXT")
+            self._conn.execute("PRAGMA user_version = 20")
         self._conn.commit()
 
     def execute(self, sql: str, args: tuple = ()) -> None:

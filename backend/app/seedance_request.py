@@ -48,7 +48,8 @@ def ts(x: float) -> str:
 
 
 def build(*, beats: list[dict], cast: list[dict], location: dict | None, voices: dict[str, dict], style: str = "", genre: str = "",
-          mood: str = "", fallback_action: str = "", use_audio: bool = True, previs: bool = False) -> dict:
+          mood: str = "", fallback_action: str = "", use_audio: bool = True, previs: bool = False,
+          max_images: int = MAX_IMAGES) -> dict:
     """Mengembalikan {"refs": [...], "prompt": str, "warnings": [str]}.
 
     beats   : [{start, end, action, camera, size?, lens?, cast:[character_id], dialogue:[{character_id,text}], image_id}] berurutan
@@ -62,11 +63,11 @@ def build(*, beats: list[dict], cast: list[dict], location: dict | None, voices:
 
     # ---- gambar ----
     beat_imgs = [(i, b) for i, b in enumerate(beats, 1) if b.get("image_id")]
-    if len(beat_imgs) > MAX_IMAGES:
-        dropped = len(beat_imgs) - MAX_IMAGES
-        beat_imgs = _thin(beat_imgs, MAX_IMAGES)
-        warnings.append(f"{dropped} gambar beat tidak dikirim (batas {MAX_IMAGES} gambar); beatnya tetap ada di prompt teks")
-    room = MAX_IMAGES - len(beat_imgs)
+    if len(beat_imgs) > max_images:
+        dropped = len(beat_imgs) - max_images
+        beat_imgs = _thin(beat_imgs, max_images)
+        warnings.append(f"{dropped} gambar beat tidak dikirim (batas {max_images} gambar); beatnya tetap ada di prompt teks")
+    room = max_images - len(beat_imgs)
     chars = [c for c in cast if c.get("image_id")]
     kept_chars = chars[:max(room, 0)]
     if len(kept_chars) < len(chars):

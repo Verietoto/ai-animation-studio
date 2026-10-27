@@ -122,7 +122,7 @@ class SceneUpdateIn(BaseModel):   # hanya field yang dikirim yang diubah (model_
     planned_seconds: int | None = None
     blockout: dict | None = None   # susunan 3D (plan 14); divalidasi blockout.clean
     blockout_image_id: str | None = None
-    start_from_prev: StrictBool | None = None   # plan 18 Revisi 9: mulai dari frame akhir adegan sebelumnya
+    start_from_scene_id: str | None = None   # plan 18 Revisi 11: frame awal = frame akhir video adegan ini (null = tidak ada)
 
 
 class TextJobIn(Confirm):   # pekerjaan AI teks: model dipilih per permintaan (plan 17); kosong = bawaan server
@@ -196,7 +196,7 @@ class OutfitIn(BaseModel):
 
 
 class EstimateIn(BaseModel):
-    kind: str = Field(pattern="^(video|image_edit|character_sheet|motion|motion_anchor|scene_keyframe|scene_video|scene_blockout|scene_beats|scene_revise|script_revise|scene_prompt_revise|scene_previs_video|storyboard_video|episode_script|episode_split|character_portrait|location_image)$")
+    kind: str = Field(pattern="^(video|image_edit|character_sheet|motion|motion_anchor|scene_keyframe|scene_video|scene_blockout|scene_beats|scene_revise|script_revise|scene_prompt_revise|scene_previs_video|storyboard_video|episode_script|episode_split|character_portrait|location_image|comic_panel)$")
     model: str
     duration: int | None = None
     resolution: str | None = None
@@ -219,8 +219,45 @@ class EstimateIn(BaseModel):
     # adegan (plan 08): server menghitung daftar gambar input dengan Scenes.keyframe_plan, sama seperti saat generate
     scene_id: str | None = None
     location_id: str | None = None
+    panel_id: str | None = None   # comic_panel (plan 21)
     film_id: str | None = None   # episode_script / episode_split (plan 15)
     description: str | None = Field(default=None, max_length=2000)   # character_portrait (plan 16)
+
+
+class BubbleIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=40)
+    kind: str
+    character_id: str | None = None
+    text: str = Field(max_length=300)
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    w: float = Field(gt=0.02, le=1)
+    h: float = Field(gt=0.02, le=1)
+    tail_x: float | None = Field(default=None, ge=0, le=1)
+    tail_y: float | None = Field(default=None, ge=0, le=1)
+
+
+class ComicPanelIn(BaseModel):
+    title: str = Field(default="", max_length=120)
+
+
+class ComicPanelUpdateIn(BaseModel):   # hanya field yang dikirim yang diubah
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = Field(default=None, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    character_ids: list[str] | None = None
+    location_id: str | None = None
+    shot: str | None = None
+    angle: str | None = None
+    aspect_ratio: str | None = None
+    comic_style: str | None = None
+    bubbles: list[BubbleIn] | None = Field(default=None, max_length=20)
+    image_id: str | None = None
+
+
+class ComicGenerateIn(Confirm):
+    model: str
 
 
 class SceneKeyframeIn(Confirm):
@@ -390,6 +427,8 @@ def create_app(settings: Settings | None = None, client: OpenRouterClient | None
         elif body.kind == "location_image":
             s.scenes.location_plan(body.location_id or "", body.model, ws)
             est = s.estimate_image_job(body.model, n_inputs=0)
+        elif body.kind == "comic_panel":
+            est = s.comic.estimate(body.panel_id or "", body.model, ws)
         elif body.kind == "scene_keyframe":
             n_inputs = len(s.scenes.keyframe_plan(body.scene_id or "", body.model, ws)["inputs"])
             est = s.estimate_image_job(body.model, n_inputs=n_inputs)
@@ -854,6 +893,40 @@ def create_app(settings: Settings | None = None, client: OpenRouterClient | None
     def scene_video(scene_id: str, body: SceneVideoIn, ws: WS, s: Studio = Depends(get_studio)):
         return s.scenes.video(scene_id, body.model, ws, body.duration, body.resolution, body.aspect_ratio, body.generate_audio,
                               body.idempotency_key, body.confirmed_cost, body.accept_unknown_cost)
+
+    # ---------- panel komik (plan 21) ----------
+    @app.get("/api/comic-panels")
+    def list_panels(ws: WS, s: Studio = Depends(get_studio)):
+        return s.comic.all(ws)
+
+    @app.post("/api/comic-panels")
+    def create_panel(body: ComicPanelIn, ws: WS, s: Studio = Depends(get_studio)):
+        return s.comic.create(ws, body.title)
+
+    @app.get("/api/comic-panels/{panel_id}")
+    def get_panel(panel_id: str, ws: WS, s: Studio = Depends(get_studio)):
+        return s.comic.get(panel_id, ws)
+
+    @app.put("/api/comic-panels/{panel_id}")
+    def update_panel(panel_id: str, body: ComicPanelUpdateIn, ws: WS, s: Studio = Depends(get_studio)):
+        patch = body.model_dump(exclude_unset=True)
+        for key in ("title", "description", "character_ids", "shot", "angle", "aspect_ratio", "comic_style", "bubbles", "image_id"):
+            if key in patch and patch[key] is None:
+                raise HTTPException(422, f"{key} tidak boleh null")
+        return s.comic.update(panel_id, patch, ws)
+
+    @app.delete("/api/comic-panels/{panel_id}")
+    def delete_panel(panel_id: str, ws: WS, s: Studio = Depends(get_studio)):
+        s.comic.delete(panel_id, ws)
+        return {"ok": True}
+
+    @app.get("/api/comic-panels/{panel_id}/preview")
+    def preview_panel(panel_id: str, model: str, ws: WS, s: Studio = Depends(get_studio)):
+        return s.comic.preview(panel_id, model, ws)
+
+    @app.post("/api/comic-panels/{panel_id}/generate")
+    def generate_panel(panel_id: str, body: ComicGenerateIn, ws: WS, s: Studio = Depends(get_studio)):
+        return s.comic.generate(panel_id, body.model, ws, body.confirmed_cost, body.accept_unknown_cost)
 
     @app.post("/api/locations/{location_id}/image")
     def location_image(location_id: str, body: LocationImageIn, ws: WS, s: Studio = Depends(get_studio)):

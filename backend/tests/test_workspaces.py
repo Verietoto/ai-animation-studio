@@ -65,7 +65,7 @@ def test_migration_v6_to_v7_moves_everything_into_main(tmp_path):
     db._conn.execute("PRAGMA user_version = 6")
     db._conn.commit()
     db2 = Database(path)
-    assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 18   # v6 -> v7 -> ... -> v18
+    assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 20   # v6 -> v7 -> ... -> v19
     assert db2.one("SELECT id, name FROM workspaces") == {"id": "main", "name": "Utama"}
     assert db2.one("SELECT workspace_id FROM images WHERE id = 'i1'")["workspace_id"] == "main"
     assert db2.one("SELECT workspace_id FROM clips WHERE id = 'c1'")["workspace_id"] == "main"

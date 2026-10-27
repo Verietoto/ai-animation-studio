@@ -103,5 +103,5 @@ def test_migration_v5_to_v6_adds_deleted_at(tmp_path):
     db._conn.execute("PRAGMA user_version = 5")
     db._conn.commit()
     db2 = Database(path)
-    assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 18   # v5 -> v6 -> ... -> v18
+    assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 20   # v5 -> v6 -> ... -> v19
     assert db2.one("SELECT id, deleted_at FROM clips") == {"id": "c1", "deleted_at": None}

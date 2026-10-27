@@ -133,5 +133,5 @@ def test_old_database_is_migrated(tmp_path):
     db = Database(path)
     row = db.one("SELECT id, cost, estimated_cost FROM clips")
     assert row == {"id": "c1", "cost": 0.5, "estimated_cost": None}
-    assert db.one("PRAGMA user_version")["user_version"] == 18   # migrasi bertingkat sampai versi terbaru
+    assert db.one("PRAGMA user_version")["user_version"] == 20   # migrasi bertingkat sampai versi terbaru
     Database(path)   # idempotent: membuka lagi tidak error

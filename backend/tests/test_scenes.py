@@ -270,7 +270,7 @@ def test_migration_v8_to_v9_turns_old_films_into_episodes(tmp_path):
     db._conn.execute("PRAGMA user_version = 8")
     db._conn.commit()
     db2 = Database(path)
-    assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 18
+    assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 20
     films = db2.all("SELECT id, number, synopsis, aspect_ratio FROM films ORDER BY number")
     assert films == [{"id": "f1", "number": 1, "synopsis": "", "aspect_ratio": "16:9"},
                      {"id": "f2", "number": 2, "synopsis": "", "aspect_ratio": "16:9"}]

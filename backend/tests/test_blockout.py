@@ -201,5 +201,5 @@ def test_fresh_database_is_latest_with_blockout_columns(tmp_path):
     db = Database(tmp_path / "x.db")
     cols = {r["name"] for r in db._conn.execute("PRAGMA table_info(scenes)")}
     assert {"blockout", "blockout_image_id", "previs_ref_id"} <= cols
-    assert db._conn.execute("PRAGMA user_version").fetchone()[0] == 18
+    assert db._conn.execute("PRAGMA user_version").fetchone()[0] == 20
     assert db.one("SELECT COUNT(*) AS n FROM text_jobs")["n"] == 0

@@ -149,7 +149,7 @@ def test_migration_v4_to_v5_keeps_existing_rows(tmp_path):
     db._conn.execute("PRAGMA user_version = 4")
     db._conn.commit()
     db2 = Database(path)
-    assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 18   # v4 -> v5 -> ... -> v18
+    assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 20   # v4 -> v5 -> ... -> v19
     row = db2.one("SELECT id, duration FROM clips WHERE id = 'c1'")
     assert row == {"id": "c1", "duration": None}
     db2.insert("films", {"id": "f", "title": "t", "created_at": "t", "updated_at": "t"})

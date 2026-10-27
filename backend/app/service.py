@@ -48,6 +48,8 @@ class Studio:
         self.sbvideo = StoryboardVideo(self)
         from .scene_prompt import ScenePrompt
         self.sprompt = ScenePrompt(self)
+        from .comic import Comic
+        self.comic = Comic(self)
         self._models: tuple[float, list[dict]] | None = None
         self._img_models: tuple[float, list[dict]] | None = None
         self._all_img_models: tuple[float, list[dict]] | None = None   # termasuk model teks-saja (katalog)

@@ -52,10 +52,12 @@ def _first(skus: dict, keys: list[str]) -> tuple[float, str] | None:
     return None
 
 
-def _per_second(skus: dict, res: str | None, audio: bool, mode: str) -> tuple[float, str] | None:
+def _per_second(skus: dict, res: str | None, audio: bool, mode: str, referenced: bool = False) -> tuple[float, str] | None:
     keys: list[str] = []
     r = res.lower() if res else None
     if r:
+        if referenced:   # HeyGen: tarif per detik lebih mahal bila ada gambar referensi
+            keys.append(f"reference_duration_seconds_{r}")
         if audio:   # tarif dengan suara harus menang atas SKU i2v tanpa suara (Kling)
             keys += [f"duration_seconds_with_audio_{r}", "duration_seconds_with_audio"]
         if mode == "i2v":
@@ -113,7 +115,7 @@ def estimate_video(info: dict, *, duration: int | None, resolution: str | None, 
     confidence = "exact"
     basis: list[str] = []
     for res in resolutions:
-        rate = _per_second(skus, res, audio, mode)
+        rate = _per_second(skus, res, audio, mode, referenced=reference_images > 0)
         for dur in (durations[0], durations[-1]):
             if rate is not None:
                 total = rate[0] * dur

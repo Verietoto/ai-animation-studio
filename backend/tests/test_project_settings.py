@@ -31,7 +31,8 @@ def test_defaults_and_roundtrip(api):
     s = settings(api)
     assert (s["video_model"], s["video_resolution"], s["aspect_ratio"], s["generate_audio"]) == ("bytedance/seedance-2.0", "720p", "16:9", True)
     assert s["ratio_locked"] is False and s["image_model"] is None and s["style"] == ""
-    assert s["allowed_video_models"] == ["bytedance/seedance-2.0", "bytedance/seedance-2.0-fast", "bytedance/seedance-2.0-mini"]
+    assert s["allowed_video_models"] == ["bytedance/seedance-2.0", "bytedance/seedance-2.0-fast", "bytedance/seedance-2.0-mini", "heygen/heygen-video-1"]
+    assert s["model_caps"]["heygen/heygen-video-1"]["previs"] is False and s["model_caps"]["bytedance/seedance-2.0"]["previs"] is True
     got = put(api, video_model="bytedance/seedance-2.0-fast", generate_audio=False, style="kartun 2D").json()
     assert got["video_model"] == "bytedance/seedance-2.0-fast" and got["generate_audio"] is False and got["style"] == "kartun 2D"
     assert settings(api)["style"] == "kartun 2D"
@@ -105,7 +106,7 @@ def test_migration_v14_backfills_ratio_from_most_common_film_ratio(tmp_path):
     db._conn.commit()
     db2 = Database(tmp_path / "old.db")
     assert db2.one("SELECT aspect_ratio FROM workspaces WHERE id = 'main'")["aspect_ratio"] == "9:16"
-    assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 18
+    assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 20
 
 
 def test_authorize_limits_false_skips_job_and_daily_limits_but_keeps_confirmation(api):

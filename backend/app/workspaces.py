@@ -13,10 +13,16 @@ NAME_MAX = 60
 MAX_COPY_ITEMS = 100
 _COPY_SUFFIX = re.compile(r"\s\(salinan(?: \d+)?\)$")
 RATIOS = ("1:1", "3:4", "9:16", "4:3", "16:9", "21:9", "9:21")   # rasio Seedance di OpenRouter
-RESOLUTIONS = ("480p", "720p", "1080p", "4K")
+RESOLUTIONS = ("480p", "720p", "768p", "1080p", "2K", "4K")
 STYLE_MAX = 500
 # Storyboard v2 dikunci ke keluarga Seedance 2.0 (format request referensi yang sama); model lain tetap bisa dipakai di alur lama
-V2_VIDEO_MODELS = ("bytedance/seedance-2.0", "bytedance/seedance-2.0-fast", "bytedance/seedance-2.0-mini")
+HEYGEN = "heygen/heygen-video-1"
+# Kapabilitas per model v2 (plan 20): satu sumber untuk backend dan UI. HeyGen: hanya gambar referensi (maks 4 = batas konservatif,
+# belum terbukti), tanpa audio referensi, previs, atau frame akhir; durasi mulai 5 dtk.
+MODEL_CAPS = {m: {"label": "Seedance", "audio_refs": True, "previs": True, "min_seconds": 4, "max_images": 9}
+              for m in ("bytedance/seedance-2.0", "bytedance/seedance-2.0-fast", "bytedance/seedance-2.0-mini")}
+MODEL_CAPS[HEYGEN] = {"label": "HeyGen", "audio_refs": False, "previs": False, "min_seconds": 5, "max_images": 4}
+V2_VIDEO_MODELS = tuple(MODEL_CAPS)
 GENRE_MAX = 80
 SETTING_FIELDS = {"video_model", "video_resolution", "aspect_ratio", "generate_audio", "image_model", "style", "genre"}
 
@@ -69,7 +75,7 @@ class Workspaces:
     def settings(self, ws_id: str) -> dict:
         row = self.get(ws_id)
         assets = self._v2_assets(ws_id)
-        return {"allowed_video_models": list(V2_VIDEO_MODELS), "video_model": row["video_model"], "video_resolution": row["video_resolution"],
+        return {"allowed_video_models": list(V2_VIDEO_MODELS), "model_caps": MODEL_CAPS, "video_model": row["video_model"], "video_resolution": row["video_resolution"],
                 "aspect_ratio": row["aspect_ratio"], "generate_audio": bool(row["generate_audio"]),
                 "image_model": row["image_model"], "style": row["style"], "genre": row["genre"] or "",
                 "ratio_locked": bool(assets["beat_images"] or assets["clips"]), "v2_assets": assets,
@@ -83,7 +89,7 @@ class Workspaces:
             new = {k: v for k, v in patch.items() if v is not None or k == "image_model"}
             if "video_model" in new:
                 if new["video_model"] not in V2_VIDEO_MODELS:
-                    raise ServiceError("Storyboard v2 hanya memakai Seedance 2.0 (2.0, 2.0 Fast, atau 2.0 Mini)", 422)
+                    raise ServiceError("Storyboard v2 hanya memakai Seedance 2.0 (2.0, 2.0 Fast, atau 2.0 Mini) atau HeyGen Video 1", 422)
                 info = next((m for m in self.st.video_models() if m.get("id") == new["video_model"]), None)
                 if not info:
                     raise ServiceError("model video tidak tersedia di OpenRouter", 422)
@@ -94,8 +100,14 @@ class Workspaces:
                     raise ServiceError(f"resolusi harus salah satu dari {', '.join(RESOLUTIONS)}", 422)
                 info = next((m for m in self.st.video_models() if m.get("id") == model), None)
                 supported = (info or {}).get("supported_resolutions")
-                if supported and res not in supported and "video_resolution" in new:
-                    raise ServiceError(f"model {model} hanya mendukung resolusi {', '.join(supported)}", 422)
+                if supported and res not in supported:   # juga saat hanya model yang diganti: tidak diubah diam-diam
+                    raise ServiceError(f"model {model} hanya mendukung resolusi {', '.join(supported)}; pilih resolusi yang didukung", 422)
+            if "video_model" in new or "aspect_ratio" in new:
+                ratio = new.get("aspect_ratio", row["aspect_ratio"])
+                info = next((m for m in self.st.video_models() if m.get("id") == model), None)
+                ok_ratios = (info or {}).get("supported_aspect_ratios")
+                if ok_ratios and ratio in RATIOS and ratio not in ok_ratios:
+                    raise ServiceError(f"model {model} tidak mendukung rasio {ratio}; pilihan: {', '.join(ok_ratios)}", 422)
             if new.get("image_model"):
                 if not any(m.get("id") == new["image_model"] for m in self.st.image_models()):
                     raise ServiceError("model gambar tidak tersedia", 422)
@@ -224,6 +236,7 @@ class Workspaces:
                 tx.execute("DELETE FROM characters WHERE workspace_id = ?", (ws_id,))
                 tx.execute("DELETE FROM films WHERE workspace_id = ?", (ws_id,))
                 tx.execute("DELETE FROM refs WHERE workspace_id = ?", (ws_id,))
+                tx.execute("DELETE FROM comic_panels WHERE workspace_id = ?", (ws_id,))
                 tx.execute("UPDATE images SET deleted_at = ?, path = '' WHERE workspace_id = ? AND deleted_at IS NULL", (stamp, ws_id))
                 tx.execute("UPDATE clips SET deleted_at = ?, path = NULL, merged_path = NULL WHERE workspace_id = ? AND deleted_at IS NULL",
                            (stamp, ws_id))

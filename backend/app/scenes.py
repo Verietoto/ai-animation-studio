@@ -16,7 +16,7 @@ from .service import DEFAULT_WS, ServiceError
 MAX_CAST = 3                       # 1 gambar latar + 3 pemeran = 4 input, muat di batas 5 kebanyakan model
 LIMITS = {"time_of_day": 60, "camera": 120, "dialogue": 1000, "extra_prompt": 500}
 ACTION_MAX, NAME_MAX, DESC_MAX = 200, 60, 300
-SCENE_FIELDS = {*LIMITS, "start_from_prev", "location_id", "keyframe_image_id", "clip_id", "cast", "planned_seconds", "blockout", "blockout_image_id",
+SCENE_FIELDS = {*LIMITS, "start_from_scene_id", "location_id", "keyframe_image_id", "clip_id", "cast", "planned_seconds", "blockout", "blockout_image_id",
                 "script_excerpt"}
 PREVIS_MODEL = "bytedance/seedance-2.0-mini"   # bawaan "video dari previs": termurah di keluarga Seedance reference
 MANNEQUIN_COLORS = ("blue", "orange", "green", "purple")   # urutan warna manekin di blockoutScene.ts
@@ -67,6 +67,10 @@ class Scenes:
             "JOIN characters c ON c.id = sc.character_id LEFT JOIN outfits o ON o.id = sc.outfit_id "
             "WHERE sc.scene_id = ? ORDER BY sc.position", (scene_id,))
 
+    def _number_of(self, scene_id: str | None) -> int | None:
+        row = self.st.db.one("SELECT position FROM scenes WHERE id = ?", (scene_id,)) if scene_id else None
+        return row["position"] + 1 if row else None
+
     def public(self, s: dict) -> dict:
         db = self.st.db
         loc = db.one("SELECT id, name, image_id FROM locations WHERE id = ?", (s["location_id"],)) if s["location_id"] else None
@@ -87,7 +91,7 @@ class Scenes:
                 "location": loc, "time_of_day": s["time_of_day"], "camera": s["camera"], "dialogue": s["dialogue"],
                 "extra_prompt": s["extra_prompt"], "keyframe_image_id": s["keyframe_image_id"], "clip_id": s["clip_id"],
                 "cast": self._cast(s["id"]), "status": status, "clip_status": clip["status"] if clip else None,
-                "planned_seconds": s["planned_seconds"], "updated_at": s["updated_at"], "start_from_prev": bool(s["start_from_prev"]),
+                "planned_seconds": s["planned_seconds"], "updated_at": s["updated_at"], "start_from_scene_id": s["start_from_scene_id"], "start_from_number": self._number_of(s["start_from_scene_id"]),
                 "blockout": json.loads(s["blockout"]) if s["blockout"] else None,
                 "blockout_image_id": s["blockout_image_id"], "previs_ref_id": s["previs_ref_id"], "script_excerpt": s["script_excerpt"] or "",
                 "keyframe_takes": [r["id"] for r in db.all(
@@ -187,13 +191,15 @@ class Scenes:
                 if cid:
                     self.st.get_clip(cid, ws)
                 values["clip_id"] = cid
-            if "start_from_prev" in fields:
-                flag = fields["start_from_prev"]
-                if not isinstance(flag, bool):
-                    raise ServiceError("start_from_prev harus true atau false", 422)
-                if flag and scene["position"] == 0:
-                    raise ServiceError("adegan pertama tidak punya adegan sebelumnya", 422)
-                values["start_from_prev"] = 1 if flag else 0
+            if "start_from_scene_id" in fields:   # plan 18 Revisi 11: frame awal dari frame akhir video adegan LAIN di episode yang sama
+                src = fields["start_from_scene_id"] or None
+                if src:
+                    if src == scene_id:
+                        raise ServiceError("adegan tidak bisa memakai frame akhirnya sendiri", 422)
+                    other = self.st.db.one("SELECT film_id FROM scenes WHERE id = ?", (src,))
+                    if not other or other["film_id"] != scene["film_id"]:
+                        raise ServiceError("adegan sumber harus ada di episode yang sama", 422)
+                values["start_from_scene_id"] = src
             if "planned_seconds" in fields:
                 secs = fields["planned_seconds"]
                 if secs is not None and (isinstance(secs, bool) or not isinstance(secs, int) or not 1 <= secs <= MAX_PLANNED):
@@ -235,6 +241,7 @@ class Scenes:
                 for table in ("images", "clips"):   # hasil generate tetap di library, hanya lepas dari adegan
                     tx.execute(f"UPDATE {table} SET scene_id = NULL WHERE scene_id = ?", (scene_id,))
                 tx.execute("DELETE FROM scene_cast WHERE scene_id = ?", (scene_id,))
+                tx.execute("UPDATE scenes SET start_from_scene_id = NULL WHERE start_from_scene_id = ?", (scene_id,))   # sumber frame awal yang hilang
                 tx.execute("DELETE FROM scene_beats WHERE scene_id = ?", (scene_id,))
                 tx.execute("DELETE FROM beat_versions WHERE scene_id = ?", (scene_id,))
                 tx.execute("DELETE FROM scenes WHERE id = ?", (scene_id,))
@@ -260,6 +267,7 @@ class Scenes:
                     tx.execute(f"UPDATE {table} SET scene_id = NULL WHERE scene_id IN ({marks})", tuple(ids))
                 for table in ("scene_cast", "scene_beats", "beat_versions"):
                     tx.execute(f"DELETE FROM {table} WHERE scene_id IN ({marks})", tuple(ids))
+                tx.execute(f"UPDATE scenes SET start_from_scene_id = NULL WHERE start_from_scene_id IN ({marks})", tuple(ids))
                 tx.execute(f"DELETE FROM scenes WHERE id IN ({marks})", tuple(ids))
                 self._renumber(tx, keep)
         return {"deleted": len(ids), "remaining": len(keep), "film_id": film["id"]}

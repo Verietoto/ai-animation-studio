@@ -17,7 +17,7 @@ from .motion import MODERATION_HINT
 from .openrouter import OpenRouterError
 from .publicmedia import NoPublicMedia, PublicMediaError
 from .service import DEFAULT_WS, ServiceError
-from .workspaces import V2_VIDEO_MODELS
+from .workspaces import MODEL_CAPS, V2_VIDEO_MODELS
 
 MIN_SECONDS, MAX_SECONDS = 4, 15   # batas durasi satu video Seedance
 DEFAULT_SECONDS = 8                # adegan tanpa beat dan tanpa durasi rencana
@@ -67,18 +67,28 @@ class StoryboardVideo:
         return out
 
     # ---------- rencana (satu sumber untuk pratinjau, estimasi, kirim) ----------
-    def start_info(self, scene: dict, ws: str) -> dict:
-        """Frame awal dari adegan sebelumnya (plan 18 Revisi 9): {ok, reason, scene_number, clip_id, path} untuk adegan ke-2 dst."""
-        if scene["position"] == 0:
-            return {"ok": False, "reason": "adegan pertama tidak punya adegan sebelumnya", "scene_number": None, "clip_id": None, "path": None}
-        prev = self.st.db.one("SELECT * FROM scenes WHERE film_id = ? AND position = ?", (scene["film_id"], scene["position"] - 1))
-        number = scene["position"]
-        if not prev or not prev["clip_id"]:
+    def start_info(self, scene: dict, ws: str, source_id: str | None = None) -> dict:
+        """Frame awal dari frame akhir video adegan lain di episode yang sama (plan 18 Revisi 11):
+        {ok, reason, scene_number, clip_id, path}. `source_id` kosong = adegan yang dipilih pada `scene`."""
+        source_id = source_id or scene.get("start_from_scene_id")
+        src = self.st.db.one("SELECT * FROM scenes WHERE id = ? AND film_id = ?", (source_id, scene["film_id"])) if source_id else None
+        if not src:
+            return {"ok": False, "reason": "adegan sumber tidak ada di episode ini", "scene_number": None, "clip_id": None, "path": None}
+        number = src["position"] + 1
+        if not src["clip_id"]:
             return {"ok": False, "reason": f"adegan {number} belum punya video; buat atau pilih videonya dulu", "scene_number": number, "clip_id": None, "path": None}
-        clip = self.st.db.one("SELECT * FROM clips WHERE id = ? AND deleted_at IS NULL AND workspace_id = ?", (prev["clip_id"], ws))
+        clip = self.st.db.one("SELECT * FROM clips WHERE id = ? AND deleted_at IS NULL AND workspace_id = ?", (src["clip_id"], ws))
         if not clip or clip["status"] != "completed" or not clip["path"] or not self.st.storage.resolve(clip["path"]).is_file():
             return {"ok": False, "reason": f"video adegan {number} belum selesai atau berkasnya hilang", "scene_number": number, "clip_id": None, "path": None}
         return {"ok": True, "reason": None, "scene_number": number, "clip_id": clip["id"], "path": clip["path"]}
+
+    def start_candidates(self, scene: dict, ws: str) -> list[dict]:
+        """Semua adegan lain di episode ini sebagai pilihan sumber frame awal, lengkap dengan alasan bila belum bisa."""
+        out = []
+        for r in self.st.db.all("SELECT id, position FROM scenes WHERE film_id = ? AND id != ? ORDER BY position", (scene["film_id"], scene["id"])):
+            i = self.start_info(scene, ws, r["id"])
+            out.append({"id": r["id"], "number": r["position"] + 1, "ok": i["ok"], "reason": i["reason"]})
+        return out
 
     def plan(self, scene_id: str, ws: str = DEFAULT_WS, *, use_audio: bool = True, use_previs: bool = False, strict: bool = True) -> dict:
         st = self.st
@@ -87,11 +97,14 @@ class StoryboardVideo:
         project = st.workspaces.get(ws)
         model = project["video_model"]
         if model not in V2_VIDEO_MODELS:
-            raise ServiceError("model video proyek bukan Seedance 2.0; pilih di pengaturan proyek", 422)
+            raise ServiceError("model video proyek bukan Seedance 2.0 atau HeyGen Video 1; pilih di pengaturan proyek", 422)
         info = next((m for m in st.video_models() if m.get("id") == model), None)
         if info is None:
             raise ServiceError(f"model {model} tidak tersedia di OpenRouter saat ini", 422)
 
+        caps = MODEL_CAPS[model]
+        if use_previs and not caps["previs"]:
+            raise ServiceError(f"{caps['label']} tidak mendukung previs 3D; pakai model Seedance atau matikan previs", 422)
         beats = self._beats(scene_id, ws)
         cast, warnings = self._cast(scene_id, ws)
         loc = st.db.one("SELECT name, description, image_id FROM locations WHERE id = ?", (scene["location_id"],)) if scene["location_id"] else None
@@ -107,27 +120,27 @@ class StoryboardVideo:
         total = beats[-1]["end"] if beats else float(scene["planned_seconds"] or DEFAULT_SECONDS)
         duration = math.ceil(total - 1e-9)
         if duration > MAX_SECONDS:
-            raise ServiceError(f"adegan ini {total:g} dtk, melebihi batas {MAX_SECONDS} dtk untuk satu video Seedance; "
+            raise ServiceError(f"adegan ini {total:g} dtk, melebihi batas {MAX_SECONDS} dtk untuk satu video {caps['label']}; "
                                "bagi menjadi beberapa adegan (masing-masing sampai 15 dtk)", 422, {"code": "scene_too_long", "seconds": total})
-        if duration < MIN_SECONDS:
-            warnings.append(f"adegan {total:g} dtk; Seedance minimal {MIN_SECONDS} dtk, durasi video dibulatkan")
-            duration = MIN_SECONDS
+        if duration < caps["min_seconds"]:
+            warnings.append(f"adegan {total:g} dtk; {caps['label']} minimal {caps['min_seconds']} dtk, durasi video dibulatkan")
+            duration = caps["min_seconds"]
 
         resolution, ratio = project["video_resolution"], project["aspect_ratio"]
         audio = bool(project["generate_audio"]) and info.get("generate_audio") is not False
         st.motion._validate_reference_params(info, duration, resolution, ratio, audio)
 
         start = None
-        if scene["start_from_prev"]:
+        if scene["start_from_scene_id"]:
             info_s = self.start_info(scene, ws)
             if info_s["ok"] and use_previs:
                 raise ServiceError("previs 3D tidak bisa digabung dengan frame awal (previs butuh referensi)", 422)
             if info_s["ok"]:
                 start = info_s
             elif strict:
-                raise ServiceError(f"frame awal dari adegan sebelumnya tidak tersedia: {info_s['reason']}", 422)
+                raise ServiceError(f"frame awal dari adegan sumber tidak tersedia: {info_s['reason']}", 422)
             else:
-                warnings.append(f"frame awal dari adegan sebelumnya tidak tersedia ({info_s['reason']}); dikirim tanpa frame awal")
+                warnings.append(f"frame awal dari adegan sumber tidak tersedia ({info_s['reason']}); dikirim tanpa frame awal")
 
         previs = None
         if use_previs and not start:
@@ -138,7 +151,8 @@ class StoryboardVideo:
 
         fallback = "; ".join(f"{c['name']}: {c['action']}" for c in cast if c["action"]) or (scene["extra_prompt"] or "")
         built = seedance_request.build(beats=beats, cast=cast, location=loc, voices=self._voices(cast), style=project["style"], genre=project["genre"] or "", mood=scene["extra_prompt"] or "",
-                                       fallback_action=fallback, use_audio=use_audio and not start, previs=bool(previs))
+                                       fallback_action=fallback, use_audio=use_audio and not start and caps["audio_refs"], previs=bool(previs),
+                                       max_images=caps["max_images"])
         # Prompt adegan (plan 18 Revisi 8) adalah SATU-SATUNYA prompt: nama → @image_N sesuai referensi aktual; build() hanya memberi referensi + peringatan
         source, _ = st.sprompt.text(scene, ws)
         if start:   # frame awal tidak bisa digabung dengan input_references (plan 18 Revisi 9): tanpa gambar/suara/previs, nama biasa di prompt
@@ -165,7 +179,7 @@ class StoryboardVideo:
             return pricing.estimate_video(plan["info"], duration=plan["duration"], resolution=plan["resolution"], audio=plan["generate_audio"],
                                           aspect_ratio=plan["aspect_ratio"], mode="i2v", image_inputs=1)
         return pricing.estimate_video(plan["info"], duration=plan["duration"], resolution=plan["resolution"], audio=plan["generate_audio"],
-                                      aspect_ratio=plan["aspect_ratio"], mode="ref", reference_images=0,
+                                      aspect_ratio=plan["aspect_ratio"], mode="ref", reference_images=sum(1 for r in plan["refs"] if r["kind"] == "image"),
                                       video_input_seconds=plan["previs"]["duration"] if plan["previs"] else 0.0)
 
     def preview(self, scene_id: str, ws: str = DEFAULT_WS, use_previs: bool = False) -> dict:
@@ -177,8 +191,8 @@ class StoryboardVideo:
                 "generate_audio": plan["generate_audio"], "prompt": plan["prompt"], "scene_prompt": plan["scene_prompt"], "warnings": plan["warnings"],
                 "refs": [{k: v for k, v in r.items()} for r in plan["refs"]], "public_media": public_ok,
                 "previs_available": bool(plan["scene"]["previs_ref_id"]), "audio_refs": len(voices_with_sample),
-                "start_from_prev": bool(plan["scene"]["start_from_prev"]), "start_frame": ({"scene_number": plan["start"]["scene_number"], "clip_id": plan["start"]["clip_id"]} if plan["start"] else None),
-                "can_start_from_prev": {k: v for k, v in self.start_info(plan["scene"], ws).items() if k in ("ok", "reason", "scene_number", "clip_id")}}
+                "start_from_scene_id": plan["scene"]["start_from_scene_id"], "start_candidates": self.start_candidates(plan["scene"], ws), "start_frame": ({"scene_number": plan["start"]["scene_number"], "clip_id": plan["start"]["clip_id"]} if plan["start"] else None),
+                "start_info": {k: v for k, v in self.start_info(plan["scene"], ws).items() if k in ("ok", "reason", "scene_number", "clip_id")}}
 
     # ---------- kirim ----------
     def generate(self, scene_id: str, ws: str = DEFAULT_WS, *, prompt: str | None = None, use_previs: bool = False,
@@ -208,6 +222,8 @@ class StoryboardVideo:
                 st.authorize(est, confirmed_cost, accept_unknown_cost, limits=False)
                 payload = {"model": plan["model"], "prompt": final_prompt, "input_references": payload_refs, "duration": plan["duration"],
                            "resolution": plan["resolution"], "aspect_ratio": plan["aspect_ratio"], "generate_audio": plan["generate_audio"]}
+                if plan["info"].get("generate_audio") is False:   # model tanpa parameter suara (HeyGen): jangan kirim
+                    payload.pop("generate_audio")
                 if frame:   # frame_images dan input_references tidak boleh digabung
                     payload.pop("input_references")
                     payload["frame_images"] = [frame_ref]
@@ -255,7 +271,7 @@ class StoryboardVideo:
         return st.scenes.get(scene_id, ws)
 
     def _start_frame(self, start: dict, ws: str) -> tuple[dict, dict]:
-        """Frame akhir video adegan sebelumnya → gambar library (kind=frame) + elemen `frame_images` first_frame."""
+        """Frame akhir video adegan sumber → gambar library (kind=frame) + elemen `frame_images` first_frame."""
         st = self.st
         tmp = st.storage.new_path(".png")
         try:

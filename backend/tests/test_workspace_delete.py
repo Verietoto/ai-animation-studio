@@ -157,5 +157,5 @@ def test_migration_v7_to_v8_adds_deleted_at(tmp_path):
     db._conn.execute("PRAGMA user_version = 7")
     db._conn.commit()
     db2 = Database(path)
-    assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 18
+    assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 20
     assert db2.one("SELECT id, deleted_at FROM workspaces WHERE id = 'main'") == {"id": "main", "deleted_at": None}
