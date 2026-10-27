@@ -189,3 +189,84 @@ def estimate_image(endpoints: list[dict], *, n_outputs: int = 1, n_inputs: int =
     order = ["exact", "formula", "history", "bound"]
     confidence = max(confidences, key=order.index)
     return Estimate(min(lows), max(highs), confidence, basis)
+
+
+# ---------- kartu harga untuk katalog model (plan 05, revisi 2) ----------
+# Semua angka berasal dari estimate_video/estimate_image di atas, jadi kartu dan /api/estimate tidak bisa berbeda rumus.
+
+def _est(e: Estimate) -> dict:
+    return {"low": round(e.low, 6), "high": round(e.high, 6), "confidence": e.confidence}
+
+
+def video_category(info: dict) -> str:
+    mid = (info.get("id") or "").lower()
+    if "first_frame" in (info.get("supported_frame_images") or []):
+        return "i2v"
+    if "upscale" in mid:
+        return "upscale"
+    if "avatar" in mid:
+        return "avatar"
+    if "edit" in mid or "aleph" in mid:
+        return "edit"
+    return "other"
+
+
+_VIDEO_DISABLED = {
+    "upscale": "Upscale video: butuh video sumber, bukan gambar awal",
+    "avatar": "Avatar bicara: butuh foto + audio, bukan alur gambar ke video",
+    "edit": "Edit video: butuh video sumber (dipakai di Tiru Gerakan)",
+    "other": "Tidak mendukung gambar sebagai frame awal",
+}
+
+
+def video_price_card(info: dict) -> dict:
+    """Harga per detik per resolusi (tanpa minimum per generasi) + contoh 5 detik resolusi terendah."""
+    skus = info.get("pricing_skus") or {}
+    no_min = {**info, "pricing_skus": {k: v for k, v in skus.items() if k != "minimum_cents_per_generation"}}
+    resolutions = info.get("supported_resolutions") or [None]
+    audio_opts = [False] if info.get("generate_audio") is False else [False, True]
+    rows = []
+    for res in resolutions:
+        per_audio = {}
+        for audio in audio_opts:
+            e = estimate_video(no_min, duration=1, resolution=res, audio=audio, image_inputs=0)
+            per_audio[audio] = e
+        same = len(per_audio) == 1 or per_audio[False].high == per_audio[True].high
+        for audio, e in ([(None, per_audio[False])] if same else list(per_audio.items())):
+            rows.append({"label": res or "semua resolusi", "audio": audio, "usd_per_second": None if e.confidence == "unknown" else round(e.high, 6),
+                         "confidence": e.confidence, "basis": e.basis[:1]})
+    durations = info.get("supported_durations") or []
+    dur = 5 if (not durations or 5 in durations) else min(durations)
+    ranked = sorted([r for r in resolutions if r in SHORT_SIDE], key=SHORT_SIDE.get)
+    res = ranked[0] if ranked else resolutions[0]
+    example = {"label": f"{dur} detik" + (f" · {res}" if res else ""), **_est(estimate_video(
+        info, duration=dur, resolution=res, audio=False, image_inputs=1))}
+    notes = []
+    if (m := _usd(skus, "minimum_cents_per_generation")):
+        notes.append(f"minimum ${m:.2f} per generasi")
+    if (i := _usd(skus, "cents_per_image_input")):
+        notes.append(f"${i:.2f} per gambar input")
+    cat = video_category(info)
+    return {"category": cat, "rows": rows, "example": example, "notes": notes,
+            "selectable": cat == "i2v", "disabled_reason": None if cat == "i2v" else _VIDEO_DISABLED[cat]}
+
+
+def image_price_card(info: dict, endpoints: list[dict] | None, error: str | None = None,
+                     history: list[float] | None = None) -> dict:
+    """Harga per satuan apa adanya per provider + contoh 1 gambar dengan 1 gambar input."""
+    can_edit = "image" in ((info.get("architecture") or {}).get("input_modalities") or [])
+    rows, example, notes = [], {"label": "1 gambar", "low": 0.0, "high": 0.0, "confidence": "unknown"}, []
+    if endpoints:
+        for ep in endpoints:
+            for p in ep.get("pricing", []):
+                rows.append({"provider": ep.get("provider_name", "?"), "billable": p.get("billable"),
+                             "unit": p.get("unit"), "usd": p.get("cost_usd"), "variant": p.get("variant")})
+        example = {"label": "1 gambar" + (" + 1 input" if can_edit else ""),
+                   **_est(estimate_image(endpoints, n_inputs=1 if can_edit else 0, history=history))}
+        if example["confidence"] == "unknown":
+            notes.append("satuan harga tidak dikenal estimator")
+    else:
+        notes.append(error or "harga tidak tersedia")
+    return {"category": "image_edit" if can_edit else "text_to_image", "rows": rows, "example": example, "notes": notes,
+            "selectable": can_edit,
+            "disabled_reason": None if can_edit else "Hanya teks ke gambar: tidak menerima gambar sumber untuk diedit"}

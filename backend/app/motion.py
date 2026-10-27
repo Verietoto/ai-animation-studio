@@ -12,7 +12,8 @@ from pathlib import Path
 from . import media, pricing
 from .db import now
 from .openrouter import OpenRouterError
-from .publicmedia import PublicMediaError
+from .service import DEFAULT_WS   # aman: service mengimpor motion secara lazy di Studio.__init__
+from .publicmedia import NoPublicMedia, PublicMediaError
 
 SEEDANCE = ["bytedance/seedance-2.0-mini", "bytedance/seedance-2.0-fast", "bytedance/seedance-2.0",
             "bytedance/seedance-2.5"]
@@ -21,6 +22,7 @@ MODE_MODELS = {
     "anchor_edit": ["runway/aleph-2"],
     "reference": SEEDANCE,
 }
+MIN_TRIM = 1.0   # detik
 MODERATION_HINT = ("model menolak video referensi karena terdeteksi orang nyata/foto-realistik; jalur "
                    "'reference' (Seedance) hanya untuk subjek non-foto-realistik, gunakan 'anchor_edit' atau 'flux_edit'")
 
@@ -35,36 +37,68 @@ class Motion:
         self.st = studio
 
     # ---------- referensi ----------
-    def add_upload(self, data_path: Path) -> dict:
+    def add_upload(self, data_path: Path, ws: str = DEFAULT_WS) -> dict:
         """data_path: berkas sementara hasil unggahan; dinormalisasi dan disimpan sebagai referensi."""
         st = self.st
         out = st.storage.new_path(".mp4")
         try:
             probe = media.probe(data_path)
-            info = media.prepare_reference_video(data_path, out, st.s.max_reference_seconds)
+            if probe["duration"] > st.s.max_source_seconds + 0.25:
+                raise _service_error(f"video {probe['duration']:.0f} dtk melebihi batas unggah "
+                                     f"{st.s.max_source_seconds:.0f} dtk", 413)
+            # plan 11: simpan utuh sampai batas unggah; user memotong rentangnya lewat trim
+            info = media.prepare_reference_video(data_path, out, st.s.max_source_seconds)
         except media.MediaError as exc:
             out.unlink(missing_ok=True)
             raise _service_error(f"video tidak valid: {exc}", 415) from exc
-        return self._save_ref(out, info, None, source_duration=probe["duration"])
+        return self._save_ref(out, info, None, source_duration=probe["duration"], ws=ws)
 
-    def add_from_clip(self, clip_id: str) -> dict:
-        clip = self.st.get_clip(clip_id)
+    def add_from_clip(self, clip_id: str, ws: str = DEFAULT_WS) -> dict:
+        clip = self.st.get_clip(clip_id, ws)
         if clip["status"] != "completed" or not clip["path"]:
             raise _service_error("klip belum selesai", 409)
         path = self.st.storage.resolve(clip["path"])
         info = media.probe(path)
-        return self._save_ref(path, info, clip_id)
+        return self._save_ref(path, info, clip_id, ws=ws)
 
-    def _save_ref(self, path: Path, info: dict, source_clip_id: str | None, source_duration: float | None = None) -> dict:
+    def _save_ref(self, path: Path, info: dict, source_clip_id: str | None, source_duration: float | None = None,
+                  ws: str = DEFAULT_WS) -> dict:
         row = {"id": uuid.uuid4().hex, "path": str(path), "source_clip_id": source_clip_id,
                "duration": info["duration"], "width": info["width"], "height": info["height"],
-               "has_audio": 1 if info["has_audio"] else 0, "created_at": now()}
+               "has_audio": 1 if info["has_audio"] else 0, "created_at": now(), "workspace_id": ws}
         self.st.db.insert("refs", row)
         return {**row, "has_audio": bool(row["has_audio"]),
                 "trimmed": bool(source_duration and source_duration > info["duration"] + 0.2)}
 
-    def get_ref(self, ref_id: str) -> dict:
-        row = self.st.db.one("SELECT * FROM refs WHERE id = ?", (ref_id,))
+    def trim(self, ref_id: str, start: float, end: float, ws: str = DEFAULT_WS) -> dict:
+        """Referensi baru dari rentang [start, end] detik; referensi asal tidak berubah (plan 11)."""
+        st = self.st
+        ref = self.get_ref(ref_id, ws)
+        end = min(end, ref["duration"])
+        length = end - start
+        if start < 0 or length < MIN_TRIM:
+            raise _service_error(f"rentang tidak valid: minimal {MIN_TRIM:.0f} detik dan mulai dari 0 atau lebih")
+        if length > st.s.max_reference_seconds + 0.01:
+            raise _service_error(f"rentang {length:.1f} dtk melebihi batas {st.s.max_reference_seconds:.0f} dtk")
+        if ref["source_clip_id"] and isinstance(st.public, NoPublicMedia):
+            raise _service_error("hasil potong adalah berkas baru dan butuh URL publik (PUBLIC_TUNNEL=cloudflared "
+                                 "atau S3/R2 di .env); tanpa itu hanya klip library utuh yang bisa dipakai", 501)
+        src = Path(ref["path"])
+        if not src.is_file():
+            raise _service_error("berkas video referensi hilang dari disk", 410)
+        out = st.storage.new_path(".mp4")
+        try:
+            info = media.prepare_reference_video(src, out, length, start=start)
+        except media.MediaError as exc:
+            out.unlink(missing_ok=True)
+            raise _service_error(f"gagal memotong video: {exc}", 422) from exc
+        return {**self._save_ref(out, info, None, ws=ws), "trimmed": True}
+
+    def get_ref(self, ref_id: str, ws: str | None = DEFAULT_WS) -> dict:
+        sql, args = "SELECT * FROM refs WHERE id = ?", [ref_id]
+        if ws is not None:   # None hanya untuk berkas referensi (tanpa batas workspace)
+            sql, args = sql + " AND workspace_id = ?", [*args, ws]
+        row = self.st.db.one(sql, tuple(args))
         if not row:
             raise _service_error("referensi tidak ditemukan", 404)
         return row
@@ -73,7 +107,7 @@ class Motion:
         if ref["duration"] > self.st.s.max_reference_seconds + 0.25:
             raise _service_error(f"video referensi {ref['duration']:.1f} dtk melebihi batas "
                                  f"{self.st.s.max_reference_seconds:.0f} dtk (biaya mengikuti panjang video); "
-                                 "unggah ulang agar dipotong otomatis")
+                                 "potong dulu dengan panel Potong video")
         if mode == "reference" and ref["width"] * ref["height"] < media.MIN_REFERENCE_PIXELS and ref["source_clip_id"]:
             raise _service_error(f"klip referensi {ref['width']}x{ref['height']} terlalu kecil untuk Seedance "
                                  f"(minimal {media.MIN_REFERENCE_PIXELS:,} piksel, mis. 854x480); buat klip "
@@ -83,7 +117,7 @@ class Motion:
         """(url, kunci_publikasi). Klip library memakai URL bertanda tangan OpenRouter; unggahan butuh storage publik."""
         st = self.st
         if ref["source_clip_id"]:
-            clip = st.get_clip(ref["source_clip_id"])
+            clip = st.get_clip(ref["source_clip_id"], None)   # klip sumber milik workspace yang sama dengan referensi
             for _ in range(5):   # `urls` bisa muncul beberapa detik setelah job selesai
                 try:
                     urls = st.client.get_video_job(clip["remote_job_id"]).get("urls")
@@ -120,9 +154,9 @@ class Motion:
 
     def estimate(self, mode: str, model: str, ref_id: str, *, duration: int | None = None,
                  resolution: str | None = None, aspect_ratio: str | None = None, generate_audio: bool = False,
-                 n_images: int = 0) -> pricing.Estimate:
+                 n_images: int = 0, ws: str = DEFAULT_WS) -> pricing.Estimate:
         info = self._model_info(mode, model)
-        ref = self.get_ref(ref_id)
+        ref = self.get_ref(ref_id, ws)
         self._check_ref(ref, mode)
         if mode == "reference":
             self._validate_reference_params(info, duration, resolution, aspect_ratio, generate_audio)
@@ -143,13 +177,19 @@ class Motion:
             raise _service_error(f"{info['id']} tidak mendukung suara")
 
     # ---------- anchor frame (jalur anchor_edit) ----------
+    def anchor_sheet(self, character_id: str, ws: str = DEFAULT_WS) -> list[str]:
+        """Gambar referensi anchor; satu sumber untuk estimasi dan make_anchor (grill 09 bug 3)."""
+        char = self.st.get_character(character_id, ws)
+        return [c["image_id"] for c in self.st.character_images(character_id)
+                if c["label"] in ("front", "side", "three_quarter")][:2] or [char["source_image_id"]]
+
     def make_anchor(self, ref_id: str, character_id: str, model: str, *, quality: str | None = None,
-                    aspect_ratio: str | None = None, confirmed_cost=None, accept_unknown_cost=False) -> dict:
+                    aspect_ratio: str | None = None, confirmed_cost=None, accept_unknown_cost=False,
+                    ws: str = DEFAULT_WS) -> dict:
         st = self.st
-        ref = self.get_ref(ref_id)
-        char = st.get_character(character_id)
-        sheet = [c["image_id"] for c in st.character_images(character_id)
-                 if c["label"] in ("front", "side", "three_quarter")][:2] or [char["source_image_id"]]
+        ref = self.get_ref(ref_id, ws)
+        char = st.get_character(character_id, ws)
+        sheet = self.anchor_sheet(character_id, ws)
         frame = st.storage.new_path(".png")
         try:
             media.first_frame(Path(ref["path"]), frame)
@@ -158,13 +198,13 @@ class Motion:
             raise _service_error(f"gagal mengambil frame pertama: {exc}", 422) from exc
         finally:
             frame.unlink(missing_ok=True)
-        base = st._save_image(png, w, h, kind="frame")
+        base = st._save_image(png, w, h, kind="frame", ws=ws)
         prompt = ("Edit image 1: replace the person with the character shown in the other reference images "
                   f"({char['description']}). Keep the exact pose, body position, framing, camera, background and "
                   "lighting of image 1 unchanged. Keep the face, hairstyle and clothing identical to the references.")
         try:
             out = st.edit_image(base["id"], prompt, model, sheet, quality=quality, aspect_ratio=aspect_ratio,
-                                confirmed_cost=confirmed_cost, accept_unknown_cost=accept_unknown_cost)
+                                confirmed_cost=confirmed_cost, accept_unknown_cost=accept_unknown_cost, ws=ws)
         except Exception:
             st.db.execute("DELETE FROM images WHERE id = ?", (base["id"],))
             st.storage.resolve(base["path"]).unlink(missing_ok=True)
@@ -176,8 +216,9 @@ class Motion:
     def create(self, *, mode: str, model: str, ref_id: str, prompt: str, character_id: str | None = None,
                image_ids: list[str] | None = None, anchor_image_id: str | None = None,
                duration: int | None = None, resolution: str | None = None, aspect_ratio: str | None = None,
-               generate_audio: bool = False, idempotency_key: str | None = None,
-               confirmed_cost: float | None = None, accept_unknown_cost: bool = False) -> dict:
+               generate_audio: bool = False, idempotency_key: str | None = None, subject_text: str | None = None,
+               confirmed_cost: float | None = None, accept_unknown_cost: bool = False, ws: str = DEFAULT_WS,
+               scene_id: str | None = None) -> dict:
         st = self.st
         if idempotency_key:
             existing = st.db.one("SELECT * FROM clips WHERE idempotency_key = ?", (idempotency_key,))
@@ -186,19 +227,22 @@ class Motion:
         if not prompt.strip() or len(prompt) > 4000:
             raise _service_error("prompt kosong atau terlalu panjang")
         info = self._model_info(mode, model)
-        ref = self.get_ref(ref_id)
+        ref = self.get_ref(ref_id, ws)
         self._check_ref(ref, mode)
-        char = st.get_character(character_id) if character_id else None
+        char = st.get_character(character_id, ws) if character_id else None
         params: dict = {"mode": mode}
         body_extra: dict = {}
         images: list[str] = []
         if mode == "flux_edit":
-            if char:   # FLUX hanya prompt: deskripsi baku karakter ikut ke prompt
-                prompt = f"{prompt}\nThe new subject: {char['description']}"
+            # FLUX hanya membaca teks: subjek baru dikirim sebagai kata-kata. `subject_text` (diedit user) menggantikan
+            # deskripsi baku karakter, yang bisa saja merujuk ke foto ("seperti di foto") dan ditolak penyedia.
+            desc = (subject_text or (char["description"] if char else "")).strip()
+            if desc:
+                prompt = f"{prompt}\nThe new subject: {desc}"
         elif mode == "anchor_edit":
             if not anchor_image_id:
                 raise _service_error("mode anchor_edit membutuhkan anchor_image_id (buat anchor dulu)")
-            anchor = st.get_image(anchor_image_id)
+            anchor = st.get_image(anchor_image_id, ws)
             if anchor["kind"] != "anchor":
                 raise _service_error("gambar bukan anchor frame")
             anchor_url = media.to_data_url(st.storage.resolve(anchor["path"]).read_bytes())
@@ -212,15 +256,20 @@ class Motion:
                 if v is not None:
                     params[k] = v
             params["generate_audio"] = generate_audio
+        url, key = self._public_url(ref)   # di luar lock: bisa menunggu sampai 10 dtk (grill 09 bug 2)
         with st._lock:
-            est = self.estimate(mode, model, ref_id, duration=duration, resolution=resolution,
-                                aspect_ratio=aspect_ratio, generate_audio=generate_audio)
-            st.authorize(est, confirmed_cost, accept_unknown_cost)
-            url, key = self._public_url(ref)
+            try:
+                est = self.estimate(mode, model, ref_id, duration=duration, resolution=resolution,
+                                    aspect_ratio=aspect_ratio, generate_audio=generate_audio, ws=ws)
+                st.authorize(est, confirmed_cost, accept_unknown_cost)
+            except Exception:
+                if key:
+                    st.public.delete(key)
+                raise
             refs = [{"type": "video_url", "video_url": {"url": url}}]
             for iid in images:
                 refs.append({"type": "image_url", "image_url": {"url": media.to_data_url(
-                    st.storage.resolve(st.get_image(iid)["path"]).read_bytes())}})
+                    st.storage.resolve(st.get_image(iid, ws)["path"]).read_bytes())}})
             payload = {"model": model, "prompt": prompt, "input_references": refs, **body_extra,
                        **{k: v for k, v in params.items() if k != "mode"}}
             try:
@@ -242,6 +291,7 @@ class Motion:
                    "prompt": prompt, "model": model, "params": json.dumps(params), "status": "submitted",
                    "remote_job_id": resp["id"], "path": None, "merged_path": None, "cost": None,
                    "estimated_cost": est.high, "error": None, "chain_depth": 0, "idempotency_key": idempotency_key,
-                   "kind": "motion", "reference_id": ref_id, "created_at": now(), "updated_at": now()}
+                   "kind": "motion", "reference_id": ref_id, "created_at": now(), "updated_at": now(), "workspace_id": ws,
+                   "scene_id": scene_id}
             st.db.insert("clips", row)
             return row

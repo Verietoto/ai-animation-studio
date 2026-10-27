@@ -38,9 +38,34 @@ class OpenRouterClient:
             raise OpenRouterError(_clean(f"OpenRouter {resp.status_code}: {resp.text}"), resp.status_code)
         return resp
 
+    # --- teks (plan 14: penyusun blockout) ---
+    def list_models(self) -> list[dict]:
+        return self._request("GET", "/models").json().get("data", [])
+
+    def chat_json(self, model: str, system: str, user: str, max_tokens: int, schema: dict | None = None,
+                  reasoning: bool = False) -> dict:
+        """Satu panggilan chat completions dengan keluaran JSON; mengembalikan respons mentah (choices + usage).
+
+        `schema` -> skema ketat (`json_schema`, strict) dengan `require_parameters` supaya hanya penyedia yang mendukung;
+        tanpa itu -> `json_object`. `reasoning` -> upaya rendah (token penalaran ditagih sebagai keluaran dan memakan max_tokens)."""
+        body: dict = {"model": model, "max_tokens": max_tokens, "temperature": 0.4,
+                      "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+        if schema:
+            body["response_format"] = {"type": "json_schema", "json_schema": {"name": "result", "strict": True, "schema": schema}}
+            body["provider"] = {"require_parameters": True}
+        else:
+            body["response_format"] = {"type": "json_object"}
+        if reasoning:
+            body["reasoning"] = {"effort": "low"}
+        return self._request("POST", "/chat/completions", json=body).json()
+
     # --- video ---
     def list_video_models(self) -> list[dict]:
         return self._request("GET", "/videos/models").json().get("data", [])
+
+    def get_video_endpoints(self, model: str) -> list[dict]:
+        """Penyedia yang melayani model; `tag` = slug untuk provider.options (plan 13)."""
+        return (self._request("GET", f"/models/{model}/endpoints").json().get("data") or {}).get("endpoints", [])
 
     def submit_video(self, payload: dict) -> dict:
         return self._request("POST", "/videos", json=payload).json()
@@ -60,8 +85,16 @@ class OpenRouterClient:
         models = self._request("GET", "/images/models").json().get("data", [])
         return [m for m in models if "image" in (m.get("architecture", {}).get("input_modalities") or [])]
 
+    def list_all_image_models(self) -> list[dict]:
+        """Semua model gambar, termasuk yang hanya teks ke gambar (untuk katalog; validasi tetap pakai list_image_models)."""
+        return self._request("GET", "/images/models").json().get("data", [])
+
     def get_image_endpoints(self, model: str) -> list[dict]:
         return self._request("GET", f"/images/models/{model}/endpoints").json().get("endpoints", [])
+
+    def generate_image(self, model: str, prompt: str, **extra: Any) -> dict:
+        """Teks ke gambar: tanpa `input_references` sama sekali (terbukti di spike plan 08)."""
+        return self._request("POST", "/images", json={"model": model, "prompt": prompt, **extra}).json()
 
     def edit_image(self, model: str, prompt: str, image_urls: list[str], **extra: Any) -> dict:
         body = {"model": model, "prompt": prompt, **extra,

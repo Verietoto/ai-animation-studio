@@ -42,6 +42,19 @@ def normalize_image(data: bytes) -> tuple[bytes, int, int]:
     return out.getvalue(), img.width, img.height
 
 
+def shrink_data_url(data: bytes, max_side: int = 1536, quality: int = 85) -> str:
+    """Gambar referensi untuk video: sisi terpanjang <= max_side, JPEG; payload kecil (9 gambar PNG penuh bisa puluhan MB)."""
+    try:
+        img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+    except (UnidentifiedImageError, OSError) as exc:
+        raise MediaError("file bukan gambar yang valid") from exc
+    if max(img.size) > max_side:
+        img.thumbnail((max_side, max_side))
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=quality)
+    return to_data_url(out.getvalue(), "image/jpeg")
+
+
 def to_data_url(data: bytes, mime: str = "image/png") -> str:
     return f"data:{mime};base64,{base64.b64encode(data).decode()}"
 
@@ -61,8 +74,11 @@ def from_b64(payload: str, max_bytes: int) -> bytes:
         raise MediaError("base64 tidak valid") from exc
 
 
-def _run(cmd: list[str]) -> subprocess.CompletedProcess:
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+def _run(cmd: list[str], timeout: float | None = None) -> subprocess.CompletedProcess:
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise MediaError(f"ffmpeg melewati batas waktu {timeout:.0f} detik") from exc
     if proc.returncode != 0:
         raise MediaError(proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else "ffmpeg gagal")
     return proc
@@ -78,9 +94,26 @@ def probe(path: Path) -> dict:
     return {
         "width": int(video["width"]),
         "height": int(video["height"]),
-        "duration": float(info["format"].get("duration", 0)),
+        "duration": _duration(path, info, video),
         "has_audio": has_audio,
     }
+
+
+def _duration(path: Path, info: dict, video: dict) -> float:
+    """Durasi dari header; WebM hasil MediaRecorder browser tidak punya (`N/A`), maka hitung dari hasil dekode (plan 14)."""
+    for raw in (info["format"].get("duration"), video.get("duration")):
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    proc = _run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v:0", "-f", "null", "-", "-progress", "pipe:2", "-nostats"],
+                timeout=120)
+    times = [int(line.split("=")[1]) for line in proc.stderr.splitlines() if line.startswith("out_time_us=") and line.split("=")[1].isdigit()]
+    if not times or max(times) <= 0:
+        raise MediaError("durasi video tidak bisa ditentukan")
+    return max(times) / 1_000_000
 
 
 def _is_usable(png: Path) -> bool:
@@ -103,7 +136,7 @@ def extract_last_frame(video: Path, out_png: Path) -> None:
     raise MediaError(f"tidak ada frame akhir yang layak: {last_error or 'semua frame gelap'}")
 
 
-def merge_videos(inputs: list[Path], out: Path) -> None:
+def merge_videos(inputs: list[Path], out: Path, timeout: float | None = None) -> None:
     """Samakan profil (resolusi, fps, codec, audio) lalu gabungkan tanpa re-encode ulang."""
     if not inputs:
         raise MediaError("tidak ada klip")
@@ -122,20 +155,20 @@ def merge_videos(inputs: list[Path], out: Path) -> None:
             cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
                     "-c:a", "aac", "-ar", "48000", "-ac", "2", "-map", "0:v:0",
                     "-map", "0:a:0" if info["has_audio"] else "1:a:0", str(dst)]
-            _run(cmd)
+            _run(cmd, timeout)
             parts.append(dst)
         listing = Path(tmp) / "list.txt"
         listing.write_text("".join(f"file '{p}'\n" for p in parts))
         _run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
-              "-c", "copy", str(out)])
+              "-c", "copy", str(out)], timeout)
 
 
 MIN_REFERENCE_PIXELS = 407_696      # batas Seedance r2v (terukur pada uji nyata: 736x400 ditolak, 854x480 lolos)
 MAX_REFERENCE_PIXELS = 1280 * 720
 
 
-def prepare_reference_video(src: Path, out: Path, max_seconds: float) -> dict:
-    """Normalisasi video referensi: potong ke max_seconds, h264 + aac, jumlah piksel di dalam
+def prepare_reference_video(src: Path, out: Path, max_seconds: float, start: float = 0.0) -> dict:
+    """Normalisasi video referensi: potong `max_seconds` detik mulai dari `start`, h264 + aac, jumlah piksel di dalam
     [MIN_REFERENCE_PIXELS, MAX_REFERENCE_PIXELS] (naikkan skala bila terlalu kecil), dimensi genap."""
     info = probe(src)
     w, h = info["width"], info["height"]
@@ -145,11 +178,21 @@ def prepare_reference_video(src: Path, out: Path, max_seconds: float) -> dict:
     elif w * h > MAX_REFERENCE_PIXELS:
         scale = (MAX_REFERENCE_PIXELS / (w * h)) ** 0.5
     nw, nh = int(round(w * scale / 2) * 2), int(round(h * scale / 2) * 2)
-    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(src), "-t", f"{max_seconds:.2f}", "-vf",
+    cmd = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", str(src), "-t", f"{max_seconds:.2f}", "-vf",
            f"scale={nw}:{nh},setsar=1,fps=24,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
     cmd += ["-c:a", "aac", "-ar", "48000", "-ac", "2"] if info["has_audio"] else ["-an"]
     _run(cmd + [str(out)])
     return probe(out)
+
+
+def prepare_voice(src: Path, out: Path, max_seconds: float) -> float:
+    """Normalisasi sampel suara: mono, 48 kHz, AAC (.m4a), dipotong `max_seconds`. Mengembalikan durasi hasil (detik)."""
+    proc = _run(["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", str(src)])
+    if not any(s.get("codec_type") == "audio" for s in json.loads(proc.stdout).get("streams", [])):
+        raise MediaError("file tidak berisi audio")
+    _run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-t", f"{max_seconds:.2f}", "-vn", "-ac", "1", "-ar", "48000", "-c:a", "aac", str(out)])
+    meta = json.loads(_run(["ffprobe", "-v", "error", "-print_format", "json", "-show_format", str(out)]).stdout)
+    return float(meta["format"]["duration"])
 
 
 def first_frame(video: Path, out_png: Path) -> None:

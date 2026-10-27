@@ -1,0 +1,111 @@
+{
+  "version": 2,
+  "lens": { "sensor_short_mm": 24 },
+  "shapes": ["box", "cylinder", "sphere", "cone", "capsule", "torus", "plane"],
+  "prefabs": {
+    "table":       { "label": "Meja",          "size": [1.4, 0.75, 0.8],  "top": true },
+    "chair":       { "label": "Kursi",         "size": [0.45, 0.9, 0.45], "top": false },
+    "stool":       { "label": "Bangku kecil",  "size": [0.4, 0.45, 0.4],  "top": true },
+    "bench":       { "label": "Bangku panjang","size": [1.5, 0.5, 0.4],   "top": true },
+    "counter":     { "label": "Meja kasir",    "size": [2.0, 1.0, 0.6],   "top": true },
+    "shelf":       { "label": "Rak",           "size": [1.0, 1.8, 0.35],  "top": true },
+    "bed":         { "label": "Kasur",         "size": [2.0, 0.55, 1.4],  "top": true },
+    "sofa":        { "label": "Sofa",          "size": [1.8, 0.85, 0.85], "top": false },
+    "door":        { "label": "Pintu",         "size": [0.9, 2.0, 0.08],  "top": false },
+    "window":      { "label": "Jendela",       "size": [1.0, 1.2, 0.08],  "top": false, "elevation": 1.0 },
+    "wall":        { "label": "Dinding",       "size": [4.0, 2.6, 0.15],  "top": false },
+    "lamp":        { "label": "Lampu berdiri", "size": [0.3, 1.6, 0.3],   "top": false, "light": true },
+    "street_lamp": { "label": "Lampu jalan",   "size": [0.3, 4.0, 0.3],   "top": false, "light": true },
+    "tree":        { "label": "Pohon",         "size": [2.0, 4.5, 2.0],   "top": false },
+    "bush":        { "label": "Semak",         "size": [0.9, 0.8, 0.9],   "top": false },
+    "rock":        { "label": "Batu",          "size": [0.8, 0.6, 0.7],   "top": true },
+    "fence":       { "label": "Pagar",         "size": [2.0, 1.0, 0.1],   "top": false },
+    "house":       { "label": "Rumah",         "size": [5.0, 3.2, 4.0],   "top": false },
+    "road":        { "label": "Jalan",         "size": [8.0, 0.02, 3.0],  "top": false, "walkable": true },
+    "crate":       { "label": "Peti",          "size": [0.6, 0.6, 0.6],   "top": true },
+    "barrel":      { "label": "Tong",          "size": [0.6, 0.9, 0.6],   "top": true },
+    "cup":         { "label": "Cangkir",       "size": [0.09, 0.1, 0.09], "top": false },
+    "plant":       { "label": "Tanaman pot",   "size": [0.4, 0.7, 0.4],   "top": false },
+    "car":         { "label": "Mobil",         "size": [4.2, 1.5, 1.8],   "top": false },
+    "motorbike":   { "label": "Motor",         "size": [1.9, 1.1, 0.7],   "top": false },
+    "cart":        { "label": "Gerobak",       "size": [1.8, 1.5, 0.9],   "top": true },
+    "sign":        { "label": "Papan nama",    "size": [1.2, 0.5, 0.06],  "top": false, "elevation": 1.8 }
+  },
+  "times": {
+    "pagi":   { "sky_top": "#8fb8ff", "sky_bottom": "#ffe8c4", "ground": "#566a45", "sun_color": "#fff1d6", "sun_intensity": 2.0, "sun_dir": [-4, 6, 5], "ambient": 0.9, "fog": "#e9e2d2", "fog_density": 0.012 },
+    "siang":  { "sky_top": "#5aa0ff", "sky_bottom": "#cfe6ff", "ground": "#5c7a45", "sun_color": "#ffffff", "sun_intensity": 2.6, "sun_dir": [2, 9, 3],  "ambient": 1.1, "fog": "#d6e6f5", "fog_density": 0.006 },
+    "senja":  { "sky_top": "#46508f", "sky_bottom": "#ff9a5a", "ground": "#4a4636", "sun_color": "#ffb070", "sun_intensity": 1.8, "sun_dir": [8, 2.2, 3],  "ambient": 0.7, "fog": "#c98760", "fog_density": 0.014 },
+    "malam":  { "sky_top": "#070b1c", "sky_bottom": "#1a2347", "ground": "#1c2230", "sun_color": "#8aa0ff", "sun_intensity": 0.55, "sun_dir": [-3, 7, 4], "ambient": 0.32, "fog": "#0b1024", "fog_density": 0.02 }
+  },
+  "weather": { "cerah": { "fog_mul": 1.0, "dim": 1.0 }, "mendung": { "fog_mul": 1.8, "dim": 0.65 }, "hujan": { "fog_mul": 2.6, "dim": 0.5 }, "kabut": { "fog_mul": 5.0, "dim": 0.7 } },
+  "hair": ["bald", "short", "long", "braids", "bun"],
+  "accessories": ["glasses", "hat"],
+  "ears": ["pointed", "round", "floppy"],
+  "tails": ["short", "medium", "long"],
+  "bodies": {
+    "humanoid": {
+      "label": "Manusia",
+      "joints": ["spine", "chest", "neck", "head", "l_shoulder", "l_elbow", "l_wrist", "r_shoulder", "r_elbow", "r_wrist", "l_hip", "l_knee", "l_ankle", "r_hip", "r_knee", "r_ankle"],
+      "limits": {
+        "spine": [[-30, 45], [-45, 45], [-30, 30]], "chest": [[-30, 45], [-45, 45], [-30, 30]],
+        "neck": [[-45, 45], [-70, 70], [-30, 30]], "head": [[-45, 45], [-70, 70], [-30, 30]],
+        "l_shoulder": [[-180, 60], [-90, 90], [-20, 180]], "r_shoulder": [[-180, 60], [-90, 90], [-180, 20]],
+        "l_elbow": [[-150, 0], [-10, 10], [-10, 10]], "r_elbow": [[-150, 0], [-10, 10], [-10, 10]],
+        "l_wrist": [[-60, 60], [-60, 60], [-60, 60]], "r_wrist": [[-60, 60], [-60, 60], [-60, 60]],
+        "l_hip": [[-120, 30], [-45, 45], [-20, 60]], "r_hip": [[-120, 30], [-45, 45], [-60, 20]],
+        "l_knee": [[0, 150], [0, 0], [0, 0]], "r_knee": [[0, 150], [0, 0], [0, 0]],
+        "l_ankle": [[-30, 45], [-20, 20], [-20, 20]], "r_ankle": [[-30, 45], [-20, 20], [-20, 20]]
+      },
+      "poses": {
+        "stand": { "hipY": 0.95, "rootRot": [0, 0, 0], "joints": { "l_shoulder": [0, 0, 5], "r_shoulder": [0, 0, -5] } },
+        "sit":   { "hipY": 0.47, "rootRot": [0, 0, 0], "joints": { "l_hip": [-90, 0, 0], "r_hip": [-90, 0, 0], "l_knee": [90, 0, 0], "r_knee": [90, 0, 0], "l_shoulder": [-25, 0, 5], "r_shoulder": [-25, 0, -5], "l_elbow": [-60, 0, 0], "r_elbow": [-60, 0, 0] } },
+        "walk":  { "hipY": 0.95, "rootRot": [0, 0, 0], "joints": { "l_shoulder": [0, 0, 5], "r_shoulder": [0, 0, -5], "spine": [8, 0, 0] } },
+        "run":   { "hipY": 0.92, "rootRot": [0, 0, 0], "joints": { "spine": [18, 0, 0], "l_elbow": [-85, 0, 0], "r_elbow": [-85, 0, 0] } },
+        "point": { "hipY": 0.95, "rootRot": [0, 0, 0], "joints": { "r_shoulder": [-90, 0, 0], "l_shoulder": [0, 0, 5] } },
+        "wave":  { "hipY": 0.95, "rootRot": [0, 0, 0], "joints": { "r_shoulder": [0, 0, -150], "r_elbow": [-40, 0, 0], "l_shoulder": [0, 0, 5] } },
+        "lie":   { "hipY": 0.12, "rootRot": [-90, 0, 0], "joints": {} }
+      },
+      "gait": {
+        "hz": 1.6, "amp": { "walk": 1, "run": 1.8 },
+        "terms": [
+          { "joint": "l_hip", "axis": 0, "amp": -30, "fn": "sin" }, { "joint": "r_hip", "axis": 0, "amp": 30, "fn": "sin" },
+          { "joint": "l_knee", "axis": 0, "amp": 40, "fn": "cos_pos" }, { "joint": "r_knee", "axis": 0, "amp": 40, "fn": "cos_neg" },
+          { "joint": "l_shoulder", "axis": 0, "amp": 25, "fn": "sin" }, { "joint": "r_shoulder", "axis": 0, "amp": -25, "fn": "sin" }
+        ]
+      },
+      "wiggle": [{ "pose": "wave", "joint": "r_wrist", "axis": 2, "amp": 30, "freq": 10 }]
+    },
+    "quadruped": {
+      "label": "Hewan berkaki empat",
+      "joints": ["spine", "chest", "neck", "head", "tail", "fl_leg", "fl_knee", "fr_leg", "fr_knee", "bl_leg", "bl_knee", "br_leg", "br_knee"],
+      "limits": {
+        "spine": [[-30, 30], [-30, 30], [-20, 20]], "chest": [[-30, 30], [-30, 30], [-20, 20]],
+        "neck": [[-60, 50], [-60, 60], [-30, 30]], "head": [[-50, 50], [-60, 60], [-30, 30]],
+        "tail": [[-60, 90], [-70, 70], [0, 0]],
+        "fl_leg": [[-90, 70], [0, 0], [-25, 25]], "fr_leg": [[-90, 70], [0, 0], [-25, 25]],
+        "bl_leg": [[-90, 70], [0, 0], [-25, 25]], "br_leg": [[-90, 70], [0, 0], [-25, 25]],
+        "fl_knee": [[0, 130], [0, 0], [0, 0]], "fr_knee": [[0, 130], [0, 0], [0, 0]],
+        "bl_knee": [[0, 130], [0, 0], [0, 0]], "br_knee": [[0, 130], [0, 0], [0, 0]]
+      },
+      "poses": {
+        "stand": { "hipY": 1.0, "rootRot": [0, 0, 0], "joints": { "tail": [20, 0, 0] } },
+        "sit":   { "hipY": 0.45, "rootRot": [-30, 0, 0], "joints": { "bl_leg": [-80, 0, 0], "br_leg": [-80, 0, 0], "bl_knee": [120, 0, 0], "br_knee": [120, 0, 0], "fl_leg": [30, 0, 0], "fr_leg": [30, 0, 0], "neck": [25, 0, 0], "tail": [-20, 0, 0] } },
+        "walk":  { "hipY": 1.0, "rootRot": [0, 0, 0], "joints": { "tail": [30, 0, 0], "head": [10, 0, 0] } },
+        "run":   { "hipY": 0.95, "rootRot": [0, 0, 0], "joints": { "spine": [-8, 0, 0], "tail": [10, 0, 0], "neck": [-15, 0, 0] } },
+        "lie":   { "hipY": 0.32, "rootRot": [0, 0, 0], "joints": { "fl_leg": [-50, 0, 0], "fr_leg": [-50, 0, 0], "fl_knee": [110, 0, 0], "fr_knee": [110, 0, 0], "bl_leg": [-70, 0, 0], "br_leg": [-70, 0, 0], "bl_knee": [120, 0, 0], "br_knee": [120, 0, 0], "neck": [20, 0, 0], "head": [10, 0, 0], "tail": [0, 55, 0] } },
+        "jump":  { "hipY": 1.7, "rootRot": [-15, 0, 0], "joints": { "fl_leg": [-60, 0, 0], "fr_leg": [-60, 0, 0], "fl_knee": [20, 0, 0], "fr_knee": [20, 0, 0], "bl_leg": [60, 0, 0], "br_leg": [60, 0, 0], "bl_knee": [30, 0, 0], "br_knee": [30, 0, 0], "tail": [40, 0, 0] } }
+      },
+      "gait": {
+        "hz": 2.0, "amp": { "walk": 1, "run": 1.8 },
+        "terms": [
+          { "joint": "fl_leg", "axis": 0, "amp": -25, "fn": "sin" }, { "joint": "br_leg", "axis": 0, "amp": -25, "fn": "sin" },
+          { "joint": "fr_leg", "axis": 0, "amp": 25, "fn": "sin" }, { "joint": "bl_leg", "axis": 0, "amp": 25, "fn": "sin" },
+          { "joint": "fl_knee", "axis": 0, "amp": 35, "fn": "cos_pos" }, { "joint": "br_knee", "axis": 0, "amp": 35, "fn": "cos_pos" },
+          { "joint": "fr_knee", "axis": 0, "amp": 35, "fn": "cos_neg" }, { "joint": "bl_knee", "axis": 0, "amp": 35, "fn": "cos_neg" },
+          { "joint": "tail", "axis": 1, "amp": 25, "fn": "sin" }
+        ]
+      },
+      "wiggle": []
+    }
+  }
+}

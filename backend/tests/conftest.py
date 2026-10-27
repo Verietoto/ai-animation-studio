@@ -23,6 +23,38 @@ UNPRICED_MODEL = {"id": "x/unpriced", "supported_durations": None, "supported_fr
                   "generate_audio": None, "pricing_skus": {}}
 EDIT_ONLY_MODEL = {"id": "x/video-edit", "supported_durations": None, "supported_frame_images": None,
                    "generate_audio": False}
+FLUX_EDIT_MODEL = {"id": "black-forest-labs/flux-video-edit", "supported_durations": None, "supported_frame_images": None,
+                   "generate_audio": False, "pricing_skus": {"cents_per_second_output": "3"}}
+ALEPH_MODEL = {"id": "runway/aleph-2", "supported_durations": None, "supported_frame_images": None, "generate_audio": False,
+               "pricing_skus": {"cents_per_second_output": "28", "minimum_cents_per_generation": "56"}}
+
+KLING_MODEL = {"id": "kwaivgi/kling-v3.0-std", "supported_durations": [5], "supported_frame_images": ["first_frame"],
+               "generate_audio": False, "pricing_skus": {"duration_seconds": "0.05"},
+               "allowed_passthrough_parameters": ["negative_prompt", "cfg_scale"]}
+VEO_MODEL = {"id": "google/veo-3.1-lite", "supported_durations": [4], "supported_frame_images": ["first_frame"],
+             "generate_audio": False, "pricing_skus": {"duration_seconds": "0.05"},
+             "allowed_passthrough_parameters": ["personGeneration", "negativePrompt"]}
+# slug penyedia sesuai GET /models/{id}/endpoints nyata (dicek 2026-10-23)
+VIDEO_PROVIDERS = {"kwaivgi/kling-v3.0-std": ["atlas-cloud"], "google/veo-3.1-lite": ["google-vertex"]}
+
+
+def _text_model(mid, pin, pout, ctx=200000, params=("response_format", "structured_outputs", "reasoning", "max_tokens"),
+                out=("text",), inp=("text", "image")):
+    return {"id": mid, "name": mid, "context_length": ctx, "pricing": {"prompt": pin, "completion": pout},
+            "architecture": {"input_modalities": list(inp), "output_modalities": list(out)}, "supported_parameters": list(params)}
+
+
+# model teks tiruan (plan 17): Haiku = bawaan; sisanya dipakai untuk menguji saringan katalog
+TEXT_MODELS = [
+    _text_model("anthropic/claude-haiku-5.5", "0.0000001", "0.0000005"),
+    _text_model("x/cheap-json", "0.00000005", "0.0000002", ctx=64000, params=("response_format", "max_tokens"), inp=("text",)),
+    _text_model("x/pricey", "0.00005", "0.0001"),                                  # keluaran $100 per juta token
+    _text_model("x/router-auto", "-1", "-1"),                                       # harga negatif: placeholder router
+    _text_model("x/tiny-context", "0.0000001", "0.0000005", ctx=8000),
+    _text_model("x/no-json", "0.0000001", "0.0000005", params=("max_tokens",)),
+    _text_model("x/image-maker", "0.0000001", "0.0000005", out=("image",)),
+    _text_model("x/free:free", "0", "0"),
+]
 
 
 def png_bytes(color=(200, 50, 50), size=(64, 48)) -> bytes:
@@ -49,21 +81,45 @@ class FakeOpenRouter:
         self.video_bytes = make_video(tmp / "remote.mp4", color="blue").read_bytes()
         self.edit_returns_image = True
         self.submit_count = 0
+        self.video_submit_error: str | None = None   # mis. pesan moderasi provider
+        self.chat_content: str = "{}"                # isi balasan /chat/completions (blockout, plan 14)
+        self.chat_cost: float | None = 0.002
+        self.image_error: str | None = None          # galat penyedia untuk POST /images (mis. moderasi)
+        self.chat_sequence: list[str] = []           # jawaban chat berurutan; dipakai dulu sebelum chat_content
+        self.chat_finish: str = "stop"               # finish_reason balasan chat ("length" = token habis)
+        self.chat_reject_schema = False              # penyedia menolak response_format json_schema (400)
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         path = request.url.path
         if path.endswith("/videos/models"):
-            return httpx.Response(200, json={"data": [VIDEO_MODEL, NO_AUDIO_MODEL, EDIT_ONLY_MODEL, UNPRICED_MODEL]})
+            return httpx.Response(200, json={"data": [VIDEO_MODEL, NO_AUDIO_MODEL, EDIT_ONLY_MODEL, UNPRICED_MODEL, FLUX_EDIT_MODEL, ALEPH_MODEL,
+                                                       KLING_MODEL, VEO_MODEL]})
+        if path == "/api/v1/models":
+            return httpx.Response(200, json={"data": TEXT_MODELS})
+        if path.endswith("/chat/completions"):
+            if self.chat_reject_schema and json.loads(request.content).get("response_format", {}).get("type") == "json_schema":
+                return httpx.Response(400, json={"error": {"message": "response_format json_schema is not supported", "code": 400}})
+            return httpx.Response(200, json={"choices": [{"message": {"content": self.chat_sequence.pop(0) if self.chat_sequence else self.chat_content}, "finish_reason": self.chat_finish}],
+                                             "usage": {"cost": self.chat_cost} if self.chat_cost is not None else {}})
+        if path.startswith("/api/v1/models/") and path.endswith("/endpoints"):
+            mid = path[len("/api/v1/models/"):-len("/endpoints")]
+            return httpx.Response(200, json={"data": {"id": mid, "endpoints": [
+                {"provider_name": t, "tag": t} for t in VIDEO_PROVIDERS.get(mid, [])]}})
         if path.endswith("/videos") and request.method == "POST":
+            if self.video_submit_error:
+                return httpx.Response(400, json={"error": {"message": self.video_submit_error, "code": 400}})
             self.submit_count += 1
             return httpx.Response(200, json={"id": f"job{self.submit_count}", "status": "pending"})
         if path.endswith("/content"):
             return httpx.Response(200, content=self.video_bytes)
         if "/videos/" in path:
             return httpx.Response(200, json={"id": path.split("/")[-1], "status": self.video_status,
-                                             "usage": {"cost": 0.4}})
+                                             "usage": {"cost": 0.4},
+                                             "urls": [f"https://or.test/signed/{path.split('/')[-1]}.mp4"]})
         if path.endswith("/images") and request.method == "POST":
+            if self.image_error:
+                return httpx.Response(400, json={"error": {"message": self.image_error, "code": 400}})
             if not self.edit_returns_image:
                 return httpx.Response(200, json={"data": [], "usage": {"cost": 0}})
             b64 = base64.b64encode(png_bytes((10, 200, 10))).decode()
@@ -118,7 +174,11 @@ class ConfirmingClient:
             kind = "image_edit" if url.endswith("/edit") else "video"
             body = {"kind": kind, "model": model, **{k: json[k] for k in ("duration", "resolution", "aspect_ratio", "generate_audio", "quality") if k in json}}
             body["reference_count"] = len(json.get("reference_image_ids", []))
-            est = self.raw.post("/api/estimate", json=body)
+            if kind == "image_edit":   # seperti UI baru: kirim id supaya server menghitung daftar gambar yang sama dengan generate
+                body["source_image_id"] = url.split("/")[-2]
+                body.update({k: json[k] for k in ("character_id", "pose_image_id", "pose_mode", "expression_image_id",
+                                                   "pose_text", "expression_text", "reference_image_ids") if k in json})
+            est = self.raw.post("/api/estimate", json=body, headers=kw.get("headers"))   # workspace sama dengan request aslinya
             if est.status_code == 200:
                 data = est.json()
                 json = {**json, "confirmed_cost": data["high"], "accept_unknown_cost": data["confidence"] == "unknown"}

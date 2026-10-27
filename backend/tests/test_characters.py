@@ -19,30 +19,43 @@ def test_create_and_list_character(api):
     assert api.raw.post("/api/characters", json={"name": "x", "description": "x", "source_image_id": "nope"}).status_code == 404
 
 
-def test_sheet_requires_total_confirmation_then_creates_four_views(api, fake):
+def sheet_posts(fake):
+    return [x for x in fake.requests if x.url.path.endswith("/images") and x.method == "POST"]
+
+
+def test_sheet_is_one_image_with_several_angles_and_needs_confirmation(api, fake):
     src, ch = make_char(api)
     est = api.raw.post("/api/estimate", json={"kind": "character_sheet", "model": M}).json()
-    assert est["high"] == 0.08                        # 4 gambar x $0,02
-    n = len([r for r in fake.requests if r.url.path.endswith("/images") and r.method == "POST"])
-    r = api.raw.post(f"/api/characters/{ch['id']}/sheet", json={"model": M})
-    assert r.status_code == 409                       # tanpa konfirmasi tidak ada panggilan berbayar
-    assert len([x for x in fake.requests if x.url.path.endswith("/images") and x.method == "POST"]) == n
+    assert est["high"] == 0.02                        # SATU gambar x $0,02
+    n = len(sheet_posts(fake))
+    assert api.raw.post(f"/api/characters/{ch['id']}/sheet", json={"model": M}).status_code == 409   # tanpa konfirmasi tidak ada panggilan
+    assert len(sheet_posts(fake)) == n
     r = api.raw.post(f"/api/characters/{ch['id']}/sheet", json={"model": M, "confirmed_cost": est["high"]})
     assert r.status_code == 200, r.text
-    labels = [i["label"] for i in r.json()["images"]]
-    assert labels == ["source", "front", "side", "three_quarter", "full_body"]
-    prompts = [__import__("json").loads(x.content)["prompt"] for x in fake.requests
-               if x.url.path.endswith("/images") and x.method == "POST"][-4:]
-    assert all("red jacket" in p and "identical" in p for p in prompts)
-    imgs = {i["id"]: i for i in api.get("/api/images").json()}
-    assert sum(1 for i in imgs.values() if i["kind"] == "sheet") == 4
-    assert api.studio.db.committed_today() >= 0.04     # biaya (0,01 per gambar dari provider palsu) tercatat
+    assert [i["label"] for i in r.json()["images"]] == ["source", "sheet"]
+    calls = sheet_posts(fake)[n:]
+    assert len(calls) == 1                            # satu panggilan, bukan empat
+    prompt = __import__("json").loads(calls[0].content)["prompt"]
+    for angle in ("front view", "three-quarter view", "side profile view", "back view"):
+        assert angle in prompt
+    assert "ONE single image" in prompt and "No text" in prompt and "red jacket" in prompt and "identical" in prompt
+    assert sum(1 for i in api.get("/api/images").json() if i["kind"] == "sheet") == 1
+    assert api.studio.db.committed_today() >= 0.01
 
 
-def test_sheet_total_respects_per_job_limit(api, settings):
+def test_sheet_asks_for_wide_ratio_only_when_model_supports_it(api, fake):
     src, ch = make_char(api)
-    api.studio.s = type(settings)(**{**settings.__dict__, "max_cost_per_job": 0.05})
-    r = api.raw.post(f"/api/characters/{ch['id']}/sheet", json={"model": M, "confirmed_cost": 0.08})
+    n = len(sheet_posts(fake))
+    api.raw.post(f"/api/characters/{ch['id']}/sheet", json={"model": M, "confirmed_cost": 0.02})
+    body = __import__("json").loads(sheet_posts(fake)[n].content)
+    supported = "16:9" in (((next(m for m in api.studio.image_models() if m["id"] == M).get("supported_parameters") or {}).get("aspect_ratio") or {}).get("values") or [])
+    assert (body.get("aspect_ratio") == "16:9") == supported
+
+
+def test_sheet_respects_per_job_limit(api, settings):
+    src, ch = make_char(api)
+    api.studio.s = type(settings)(**{**settings.__dict__, "max_cost_per_job": 0.01})
+    r = api.raw.post(f"/api/characters/{ch['id']}/sheet", json={"model": M, "confirmed_cost": 0.02})
     assert r.status_code == 402
 
 
@@ -68,4 +81,4 @@ def test_edit_with_unknown_character_404(api):
 def test_database_reaches_latest_version(tmp_path):
     from app.db import Database
     db = Database(tmp_path / "x.db")
-    assert db.one("PRAGMA user_version")["user_version"] == 4
+    assert db.one("PRAGMA user_version")["user_version"] == 18
