@@ -99,7 +99,7 @@ const json = (body: unknown): RequestInit => ({
 });
 
 export interface EstimateRequest {
-  kind: "video" | "image_edit" | "character_sheet" | "scene_keyframe" | "scene_video" | "scene_blockout" | "scene_beats" | "scene_revise" | "script_revise" | "scene_prompt_revise" | "scene_previs_video" | "episode_script" | "episode_split" | "character_portrait" | "location_image" | "storyboard_video" | "motion" | "motion_anchor"; model: string; use_previs?: boolean;
+  kind: "video" | "image_edit" | "character_sheet" | "scene_keyframe" | "scene_video" | "scene_blockout" | "scene_beats" | "scene_revise" | "script_revise" | "scene_prompt_revise" | "scene_previs_video" | "episode_script" | "episode_split" | "character_portrait" | "location_image" | "storyboard_video" | "motion" | "motion_anchor" | "comic_panel"; model: string; panel_id?: string; use_previs?: boolean;
   mode?: MotionMode; reference_id?: string;
   scene_id?: string; location_id?: string; film_id?: string; description?: string; duration?: number; resolution?: string; aspect_ratio?: string;
   generate_audio?: boolean; reference_count?: number; quality?: string;
@@ -129,7 +129,7 @@ export interface Scene {
   planned_seconds: number | null; keyframe_takes: string[]; video_takes: { id: string; status: string }[];
   blockout: Layout | null; blockout_image_id: string | null; previs_ref_id: string | null;   // plan 14
   script_excerpt: string;   // potongan naskah asal adegan (plan 15)
-  start_from_prev: boolean;   // plan 18 Revisi 9: mulai dari frame akhir video adegan sebelumnya
+  start_from_scene_id: string | null; start_from_number: number | null;   // plan 18 Revisi 11: frame awal = frame akhir video adegan ini
 }
 
 // ---- alur episode (plan 15) ----
@@ -156,11 +156,12 @@ export interface JourneyState {
 }
 // ---- Storyboard v2 (plan 18) ----
 export interface ProjectSettings {
-  allowed_video_models: string[];   // Storyboard v2 dikunci ke keluarga Seedance 2.0 (server yang menentukan)
+  allowed_video_models: string[];   // Storyboard v2: Seedance 2.0 dan HeyGen Video 1 (server yang menentukan)
+  model_caps?: Record<string, { label: string; audio_refs: boolean; previs: boolean; min_seconds: number; max_images: number }>;   // plan 20
   video_model: string; video_resolution: string; aspect_ratio: string; generate_audio: boolean; image_model: string | null; style: string; genre: string;
   ratio_locked: boolean; v2_assets: { beat_images: number; clips: number }; mismatched_films: number; synced_films?: number;
 }
-export type ProjectSettingsPatch = Partial<Omit<ProjectSettings, "allowed_video_models" | "ratio_locked" | "v2_assets" | "mismatched_films" | "synced_films">> & { confirm_sync?: boolean };
+export type ProjectSettingsPatch = Partial<Omit<ProjectSettings, "allowed_video_models" | "model_caps" | "ratio_locked" | "v2_assets" | "mismatched_films" | "synced_films">> & { confirm_sync?: boolean };
 export interface VoiceVersion {
   id: string; character_id: string; description: string; has_audio: boolean; duration: number | null; source: "upload" | "text";
   consent: boolean; revision_note: string | null; created_at: string; active: boolean;
@@ -187,8 +188,9 @@ export interface StoryboardRef { kind: "image" | "audio" | "video" | "frame"; n:
 export interface StoryboardPreview {
   model: string; duration: number; resolution: string; aspect_ratio: string; generate_audio: boolean; prompt: string; warnings: string[];
   scene_prompt: string; refs: StoryboardRef[]; public_media: boolean; previs_available: boolean; audio_refs: number;
-  start_from_prev: boolean; start_frame: { scene_number: number; clip_id: string } | null;
-  can_start_from_prev: { ok: boolean; reason: string | null; scene_number: number | null; clip_id: string | null };
+  start_from_scene_id: string | null; start_frame: { scene_number: number; clip_id: string } | null;
+  start_candidates: { id: string; number: number; ok: boolean; reason: string | null }[];
+  start_info: { ok: boolean; reason: string | null; scene_number: number | null; clip_id: string | null };
 }
 
 export interface ScriptRevision {
@@ -203,7 +205,7 @@ export interface SplitScene {
 export interface CastIn { character_id: string; outfit_id: string | null; action: string }
 /** Hanya field yang dikirim yang diubah di server. */
 export type SceneUpdate = Partial<Pick<Scene, "time_of_day" | "camera" | "dialogue" | "extra_prompt">> &
-  { start_from_prev?: boolean; location_id?: string | null; keyframe_image_id?: string | null; clip_id?: string | null; cast?: CastIn[]; planned_seconds?: number | null;
+  { start_from_scene_id?: string | null; location_id?: string | null; keyframe_image_id?: string | null; clip_id?: string | null; cast?: CastIn[]; planned_seconds?: number | null;
     blockout?: Layout | null; blockout_image_id?: string | null };
 
 export type Confidence = Estimate["confidence"];
@@ -228,6 +230,19 @@ export interface FilmDetail extends Film {
   scenes: Scene[];
   durations: Record<string, number>; warnings: { scene: number; kind: "aspect" | "unplayable"; message: string }[];
 }
+
+// ---- Panel komik (plan 21) ----
+export type BubbleKind = "speech" | "thought" | "caption" | "sfx";
+export interface Bubble {   // koordinat relatif 0..1 terhadap panel
+  id: string; kind: BubbleKind; character_id: string | null; text: string; x: number; y: number; w: number; h: number;
+  tail_x: number | null; tail_y: number | null;
+}
+export interface ComicPanel {
+  id: string; title: string; description: string; character_ids: string[]; location_id: string | null;
+  shot: string; angle: string; aspect_ratio: string; comic_style: string; bubbles: Bubble[];
+  image_id: string | null; takes: string[]; created_at: string; updated_at: string;
+}
+export type ComicPanelPatch = Partial<Pick<ComicPanel, "title" | "description" | "character_ids" | "location_id" | "shot" | "angle" | "aspect_ratio" | "comic_style" | "bubbles" | "image_id">>;
 
 const put = <T>(path: string, body: unknown) =>
   call<T>(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -294,6 +309,13 @@ export const api = {
   createCharacter: (body: { name: string; description: string; source_image_id: string }) => call<Character>("/characters", json(body)),
   makeSheet: (id: string, body: { model: string; aspect_ratio?: string } & Confirm) => call<Character>(`/characters/${id}/sheet`, json(body)),
   estimate: (body: EstimateRequest) => call<Estimate>("/estimate", json(body)),
+  comicPanels: () => call<ComicPanel[]>("/comic-panels"),
+  createComicPanel: () => call<ComicPanel>("/comic-panels", json({})),
+  updateComicPanel: (id: string, patch: ComicPanelPatch) => put<ComicPanel>(`/comic-panels/${id}`, patch),
+  deleteComicPanel: (id: string) => call<{ ok: boolean }>(`/comic-panels/${id}`, { method: "DELETE" }),
+  comicPreview: (id: string, model: string) => call<{ prompt: string; inputs: string[]; warnings: string[] }>(`/comic-panels/${id}/preview?model=${encodeURIComponent(model)}`),
+  generateComicPanel: (id: string, body: { model: string; confirmed_cost: number | null; accept_unknown_cost: boolean }) =>
+    call<ComicPanel>(`/comic-panels/${id}/generate`, json(body)),
   health: () => call<Health>("/health"),
   videoModels: () => call<VideoModel[]>("/models/video"),
   imageModels: () => call<ImageModel[]>("/models/image"),

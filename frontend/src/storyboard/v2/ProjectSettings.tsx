@@ -37,6 +37,18 @@ export function ProjectSettingsPanel({ s, setS, onChanged }: { s: ProjectSetting
   const resolutions = model?.supported_resolutions?.length ? model.supported_resolutions : RESOLUTIONS;
   const ratios = model?.supported_aspect_ratios?.length ? RATIOS.filter((r) => model.supported_aspect_ratios!.includes(r) || r === s.aspect_ratio) : RATIOS;
 
+  /** Ganti model: resolusi dan rasio yang tidak didukung model baru ikut dipindah ke pilihan pertama yang didukung (server menolak bila tidak). */
+  function switchModel(id: string): ProjectSettingsPatch {
+    const next = videoModels.find((m) => m.id === id);
+    const patch: ProjectSettingsPatch = { video_model: id };
+    const rs = next?.supported_resolutions;
+    if (rs?.length && !rs.includes(s.video_resolution)) patch.video_resolution = rs[0];
+    const as = next?.supported_aspect_ratios;
+    if (as?.length && !as.includes(s.aspect_ratio) && !s.ratio_locked) patch.aspect_ratio = as.includes("16:9") ? "16:9" : as[0];
+    return patch;
+  }
+  const noAudio = model?.generate_audio === false;
+
   async function save(patch: ProjectSettingsPatch): Promise<void> {
     setBusy(true);
     try {
@@ -61,12 +73,13 @@ export function ProjectSettingsPanel({ s, setS, onChanged }: { s: ProjectSetting
       <h3>Pengaturan proyek {busy && <Loader2 size={13} className="spin" />}</h3>
       <p className="muted">Berlaku untuk semua episode, supaya hasilnya seragam. Perubahan tersimpan otomatis dan hanya memengaruhi hasil berikutnya.</p>
 
-      <label className="field">Model video (Seedance 2.0)
-        <select value={s.video_model} onChange={(e) => quiet({ video_model: e.target.value })} disabled={busy}>
+      <label className="field">Model video
+        <select value={s.video_model} onChange={(e) => quiet(switchModel(e.target.value))} disabled={busy}>
           {!choices.some((m) => m.id === s.video_model) && <option value={s.video_model}>{s.video_model}</option>}
           {choices.map((m) => <option key={m.id} value={m.id}>{m.name ?? m.id}</option>)}
         </select>
       </label>
+      {s.model_caps?.[s.video_model] && !s.model_caps[s.video_model].audio_refs && <p className="muted warn">Model ini hanya menerima gambar referensi (maks {s.model_caps[s.video_model].max_images}): tanpa suara karakter, previs, atau frame akhir. Adegan dengan gambar referensi ditagih tarif lebih tinggi plus per gambar.</p>}
 
       <div className="field" role="group" aria-label="Resolusi video">Resolusi
         <div className="seg">
@@ -93,8 +106,8 @@ export function ProjectSettingsPanel({ s, setS, onChanged }: { s: ProjectSetting
       </div>
 
       <label className="check">
-        <input type="checkbox" checked={s.generate_audio} disabled={busy} onChange={(e) => quiet({ generate_audio: e.target.checked })} />
-        Buat suara, dialog, dan efek bunyi bersama videonya
+        <input type="checkbox" checked={s.generate_audio && !noAudio} disabled={busy || noAudio} onChange={(e) => quiet({ generate_audio: e.target.checked })} />
+        Buat suara, dialog, dan efek bunyi bersama videonya{noAudio && " (tidak didukung model ini)"}
       </label>
 
       <label className="field">Genre
@@ -125,7 +138,7 @@ export function ProjectSummary({ s, onOpen }: { s: ProjectSettings; onOpen: () =
   const short = s.video_model.split("/").pop() ?? s.video_model;
   return (
     <button className="v2-summary" onClick={onOpen} title="Buka pengaturan proyek">
-      <strong>{short}</strong><span>{s.video_resolution}</span><span>{s.aspect_ratio}</span><span>{s.generate_audio ? "dengan suara" : "tanpa suara"}</span>
+      <strong>{short}</strong><span>{s.video_resolution}</span><span>{s.aspect_ratio}</span><span>{s.generate_audio && s.model_caps?.[s.video_model]?.audio_refs !== false ? "dengan suara" : "tanpa suara"}</span>
       {s.ratio_locked && <Lock size={12} aria-label="Rasio terkunci" />}
     </button>
   );

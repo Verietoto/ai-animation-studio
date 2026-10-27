@@ -574,3 +574,22 @@ button.chip.mention { border: 0; cursor: pointer; }
 .v2-diff-pre { white-space: pre-wrap; margin: 6px 0 0; font-size: 12px; font-family: var(--mono, "JetBrains Mono", monospace); }
 .v2-diff-pre span { display: block; }
 .v2-diff-pre .chg { background: rgba(139, 92, 246, .16); border-left: 2px solid var(--accent, #8b5cf6); padding-left: 6px; }
+
+/* ---- Komik (plan 21) ---- */
+.comic-tabs { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.comic-tab { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; border-radius: 10px; border: 1px solid var(--line); background: var(--s2); color: var(--text); cursor: pointer; }
+.comic-tab.on { border-color: var(--accent, #8b5cf6); box-shadow: 0 0 0 1px var(--accent, #8b5cf6) inset; }
+.comic-tab img, .comic-tab-empty { width: 40px; height: 30px; object-fit: cover; border-radius: 6px; display: grid; place-items: center; background: var(--s3); }
+.comic-wrap { display: flex; flex-direction: column; gap: 8px; }
+.comic-box { position: relative; margin: 0 auto; touch-action: none; user-select: none; }
+.comic-box canvas { width: 100%; height: 100%; display: block; border-radius: 4px; }
+.cb-box { position: absolute; cursor: move; border-radius: 6px; }
+.cb-box:hover { outline: 1px dashed rgba(255,255,255,.5); }
+.cb-box.sel { outline: 2px dashed #22d3ee; }
+.cb-resize { position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px; border-radius: 3px; background: #22d3ee; cursor: nwse-resize; }
+.cb-tail { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #ffd23f; border: 2px solid #111; cursor: crosshair; }
+.comic-inspector { display: flex; flex-direction: column; gap: 12px; }
+.comic-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.comic-bubble-fields { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.chip.on { border-color: #22d3ee; color: var(--text); }
+.prompt-pre { white-space: pre-wrap; font-size: 12px; max-height: 240px; overflow: auto; }

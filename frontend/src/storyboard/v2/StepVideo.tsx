@@ -32,17 +32,18 @@ function ScenePanel({ scene, settings, characters, locations, locked, onSaved, o
   const live = useEstimate(body);
   const run = useConfirmedRun(() => body, async (c) => {
     await api.storyboardVideo(scene.id, { use_previs: false, idempotency_key: crypto.randomUUID(), ...c });   // prompt = prompt adegan yang tersimpan
-    toast.success("Video dikirim ke Seedance; hasilnya muncul di antrian dan adegan ini");
+    toast.success("Video dikirim; hasilnya muncul di antrian dan adegan ini");
     onDone();
   });
 
   const editor = <ScenePromptEditor scene={scene} characters={characters} locations={locations} locked={locked} rows={11} onSaved={onSaved} onDirty={setDirty} />;
   if (error) return <div className="v2-vid"><p className="error v2-vid-error"><AlertTriangle size={14} /> {error}</p>{editor}</div>;
   if (!pv) return <p className="muted"><Loader2 size={14} className="spin" /> Menyiapkan pratinjau…</p>;
+  const candidates = pv.start_candidates ?? [];
   const images = pv.refs.filter((r) => r.kind === "image");
-  async function setChain(on: boolean) {
+  async function setChain(sourceId: string | null) {
     setChainBusy(true);
-    try { await api.updateScene(scene.id, { start_from_prev: on }); onSaved(); }
+    try { await api.updateScene(scene.id, { start_from_scene_id: sourceId }); onSaved(); }
     catch (e) { toast.error((e as Error).message); }
     finally { setChainBusy(false); }
   }
@@ -58,14 +59,20 @@ function ScenePanel({ scene, settings, characters, locations, locked, onSaved, o
 
       {editor}
 
-      {scene.number > 1 && (
-        <label className="check v2-chain">
-          <input type="checkbox" checked={scene.start_from_prev} disabled={locked || chainBusy || (!scene.start_from_prev && !pv.can_start_from_prev.ok)}
-            onChange={(e) => void setChain(e.target.checked)} />
-          Mulai dari frame akhir adegan sebelumnya
-          {!pv.can_start_from_prev.ok && <span className="warn"> ({pv.can_start_from_prev.reason})</span>}
-        </label>
-      )}
+      <label className="field v2-chain">Mulai dari frame akhir adegan lain
+        <select value={scene.start_from_scene_id ?? ""} disabled={locked || chainBusy || candidates.length === 0} onChange={(e) => void setChain(e.target.value || null)} aria-label="Mulai dari frame akhir adegan">
+          <option value="">Tidak, pakai gambar karakter dan latar</option>
+          {candidates.map((c) => (
+            <option key={c.id} value={c.id} disabled={!c.ok && c.id !== scene.start_from_scene_id}>
+              Adegan {c.number}{c.ok ? " · video selesai" : ` · ${c.reason ?? "belum bisa"}`}
+            </option>
+          ))}
+        </select>
+        {pv.start_candidates === undefined && <span className="warn">Backend belum diperbarui: restart make dev, lalu muat ulang halaman.</span>}
+        {pv.start_candidates !== undefined && candidates.length === 0 && <span className="muted">Episode ini baru punya satu adegan; tambah adegan lain untuk memilih sumber frame.</span>}
+        {scene.start_from_scene_id && pv.start_info && !pv.start_info.ok && <span className="warn">Frame awal belum tersedia: {pv.start_info.reason}</span>}
+        <span className="muted">Pilih adegan mana pun di episode ini yang videonya sudah selesai, bukan hanya yang sebelumnya.</span>
+      </label>
       {pv.start_frame && (
         <div className="v2-startframe">
           <video src={`${api.clipUrl(pv.start_frame.clip_id)}#t=0.1`} muted preload="metadata" playsInline
@@ -91,7 +98,7 @@ function ScenePanel({ scene, settings, characters, locations, locked, onSaved, o
       {pv.warnings.length > 0 && <ul className="v2-warns">{pv.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
 
       <details className="v2-sent">
-        <summary>Teks yang persis dikirim ke Seedance</summary>
+        <summary>Teks yang persis dikirim ke model video</summary>
         <pre>{pv.prompt}</pre>
       </details>
 
@@ -127,9 +134,9 @@ export function StepVideo({ detail, settings, characters, locations, locked, rel
   const tooLong = (s: Scene) => (secondsOf(s, beatEnds[s.id] ?? null) ?? 0) > 15;
   // adegan berantai (frame awal dari adegan sebelumnya) hanya jalan bila video adegan sebelumnya SUDAH selesai
   const waitingFor = (s: Scene): number | null => {
-    if (!s.start_from_prev) return null;
-    const prev = detail.scenes[detail.scenes.findIndex((x) => x.id === s.id) - 1];
-    return prev && prev.clip_id && prev.clip_status === "completed" ? null : (prev?.number ?? null);
+    if (!s.start_from_scene_id) return null;
+    const src = detail.scenes.find((x) => x.id === s.start_from_scene_id);
+    return src && !(src.clip_id && src.clip_status === "completed") ? src.number : null;
   };
   const runnable = need.filter((s) => !tooLong(s) && waitingFor(s) === null);
   const waiting = need.filter((s) => !tooLong(s) && waitingFor(s) !== null);
@@ -144,8 +151,8 @@ export function StepVideo({ detail, settings, characters, locations, locked, rel
   return (
     <div className="jr-produce">
       <div className="jr-card">
-        <h3>Video dengan Seedance</h3>
-        <p className="muted">Tiap adegan dikirim sebagai satu video (4 sampai 15 detik) dari prompt adegannya, dengan gambar karakter dan latar yang disebut di prompt (serta suara penutur) sebagai referensi. Pengaturan: {settings.video_model.split("/").pop()}, {settings.video_resolution}, {settings.aspect_ratio}, {settings.generate_audio ? "dengan suara" : "tanpa suara"}.
+        <h3>Video dengan {settings.model_caps?.[settings.video_model]?.label ?? "Seedance"}</h3>
+        <p className="muted">Tiap adegan dikirim sebagai satu video ({settings.model_caps?.[settings.video_model]?.min_seconds ?? 4} sampai 15 detik) dari prompt adegannya, dengan gambar karakter dan latar yang disebut di prompt (serta suara penutur) sebagai referensi. Pengaturan: {settings.video_model.split("/").pop()}, {settings.video_resolution}, {settings.aspect_ratio}, {settings.generate_audio ? "dengan suara" : "tanpa suara"}.
           {" "}<button className="btn ghost sm" onClick={() => goStep(1)}>Ubah di pengaturan proyek</button></p>
         <button className="btn primary" disabled={locked || batch.busy || runnable.length === 0} onClick={all}>
           <Video size={14} /> Buat semua video yang belum ada ({runnable.length})
@@ -168,7 +175,7 @@ export function StepVideo({ detail, settings, characters, locations, locked, rel
                 <div className="jr-grow">
                   <strong>Adegan {s.number}</strong> <span className={`pill st-${s.status}`}>{STATUS_LABEL[s.status]}</span>
                   <div className="muted clamp1">{s.location?.name ?? "tanpa latar"} · {s.cast.map((c) => c.character_name).join(", ") || "tanpa pemeran"} · {sec != null ? `${sec} dtk` : "durasi belum diatur"}</div>
-                  {s.start_from_prev && <div className="muted">berantai dari frame akhir adegan {s.number - 1}</div>}
+                  {s.start_from_number != null && <div className="muted">berantai dari frame akhir adegan {s.start_from_number}</div>}
                   {tooLong(s) && <div className="warn"><AlertTriangle size={12} /> Lebih dari 15 detik; bagi adegan ini.</div>}
                 </div>
                 <button className="btn sm" disabled={locked} onClick={() => setOpen(open === s.id ? null : s.id)} aria-expanded={open === s.id}>

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { Clapperboard, Film, Footprints, Library as LibraryIcon, Sparkles, UserRound, Wand2, Wallet } from "lucide-react";
+import { BookOpen, Clapperboard, Film, Footprints, Library as LibraryIcon, Sparkles, UserRound, Wand2, Wallet } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { api, Img, Workspace, workspace } from "./api";
 import { useWorkspaces, WorkspaceProvider, WorkspaceSwitcher } from "./workspaces";
@@ -17,6 +17,7 @@ import Characters from "./pages/Characters";
 import Motion from "./pages/Motion";
 
 const Storyboard = lazy(() => import("./pages/Storyboard"));   // dnd-kit hanya dimuat saat dibuka
+const Comic = lazy(() => import("./pages/Comic"));   // plan 21
 
 const PAGES = [
   { id: "create", title: "Gambar → Video", icon: Clapperboard },
@@ -24,6 +25,7 @@ const PAGES = [
   { id: "characters", title: "Karakter", icon: UserRound },
   { id: "library", title: "Library", icon: LibraryIcon },
   { id: "storyboard", title: "Storyboard", icon: Film },
+  { id: "comic", title: "Komik", icon: BookOpen },
   { id: "motion", title: "Tiru Gerakan", icon: Footprints },
 ] as const;
 type PageId = (typeof PAGES)[number]["id"];
@@ -182,6 +184,8 @@ function AppInner({ pending }: { pending: ItemRef | null }) {
               <Storyboard clips={clips.clips} images={list} characters={chars.data ?? []} addImage={addImage} focusFilm={focusFilm}
                 reloadCharacters={() => { void api.characters().then(chars.setData).catch(() => {}); }}
                 onGenerated={() => { void clips.reload(); void refreshImages(); refreshHealth(); askNotificationPermission(); }} /></Suspense>}
+            {page === "comic" && <Suspense fallback={<p className="muted" style={{ padding: 18 }}>Memuat komik…</p>}>
+              <Comic characters={chars.data ?? []} onGenerated={() => { void refreshImages(); refreshHealth(); }} /></Suspense>}
             {page === "motion" && <Motion clips={clips.clips} images={list} characters={chars.data ?? []} addImage={addImage}
               publicMedia={!!h?.public_media} maxReference={h?.max_reference_seconds ?? 10}
               onCreated={() => { void clips.reload(); void refreshImages(); refreshHealth(); setDockOpen(true); askNotificationPermission(); }} />}
